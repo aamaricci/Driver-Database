@@ -37,6 +37,11 @@ program ed_kanemele
   character(len=32)                             :: hkfile
   logical                                       :: spinsym,neelsym,afmkick,getbands
   real(8),allocatable,dimension(:)              :: dens
+  complex(8),dimension(4,4)                     :: Gamma0,GammaX,GammaY,GammaZ,Gamma5 !(4,4) means (Nlso,Nlso)...
+  complex(8),dimension(4,4)                     :: GammaSz,GammaSx,GammaSy
+  complex(8),dimension(4,4)                     :: GammaRz,GammaRx,GammaRy
+  real(8),dimension(:),allocatable              :: lambdasym_vector
+  complex(8),dimension(:,:,:,:,:),allocatable   :: Hsym_basis
 
   !MPI
   integer                                     :: comm,rank
@@ -82,7 +87,6 @@ program ed_kanemele
   Nso=Nspin*Norb
   Nlso=Nlat*Nso                 !=4 = 2(ineq sites)*2(spin)*1(orb)
 
-
   !Lattice basis (a=1; a0=sqrt3*a) is:
   !e_1 = a0 [ sqrt3/2 , 1/2 ] = 3/2a[1, 1/sqrt3]
   !e_2 = a0 [ sqrt3/2 ,-1/2 ] = 3/2a[1,-1/sqrt3]
@@ -123,22 +127,65 @@ program ed_kanemele
 
 
   !Setup solver
-  Nb=ed_get_bath_dimension()
-  allocate(Bath(Nlat,Nb))
-  allocate(Bath_prev(Nlat,Nb))
-  call ed_init_solver(comm,Bath,Hloc)
-
-  !AFM initial 'kick', if requested in the inputfile
-  if(afmkick)then
-     do ilat=1,Nlat
-        call ed_break_symmetry_bath(Bath(ilat,:),sb_field,(-1d0)**(ilat+1))
-     enddo
-     if(master)write(*,*) "************************************************"
-     if(master)write(*,*) "*                                              *"
-     if(master)write(*,*) "*  !Applying an AFM kick to the initial bath!  *"
-     if(master)write(*,*) "*                                              *"
-     if(master)write(*,*) "************************************************"
-  endif
+  if(bath_type=="replica")then
+    !SETUP THE GAMMA MATRICES:
+    !we must use the basis \Gamma_ab = \tau_a \circ \sigma_b
+    ! tau_a   -> lattice
+    ! sigma_b -> spin
+    ! \psi = [A_up, A_dw; B_up, B_dw]^T
+    !This convention is dictated by the use of DMFT_TOOLS functions
+    gamma0=kron_pauli( pauli_tau_0, pauli_sigma_0) !G_00
+    gammaZ=kron_pauli( pauli_tau_z, pauli_sigma_z) !G_33
+    gammaX=kron_pauli( pauli_tau_x, pauli_sigma_0) !G_10
+    gammaY=kron_pauli( pauli_tau_y, pauli_sigma_0) !G_20
+    gamma5=kron_pauli( pauli_tau_0, pauli_sigma_z) !G_03
+    !
+    gammaSx=kron_pauli( pauli_tau_0, pauli_sigma_x )
+    gammaSy=kron_pauli( pauli_tau_0, pauli_sigma_y )
+    gammaSz=kron_pauli( pauli_tau_0, pauli_sigma_z )
+    gammaRx=kron_pauli( pauli_tau_z, pauli_sigma_x )
+    gammaRy=kron_pauli( pauli_tau_z, pauli_sigma_y )
+    gammaRz=kron_pauli( pauli_tau_z, pauli_sigma_z )
+    !Setup HLOC symmetries: 
+    allocate(lambdasym_vector(3))
+    allocate(Hsym_basis(Nlat,Nspin,Nspin,Norb,Norb,3))
+    Hsym_basis(:,:,:,:,:,1)=lso2nnn_reshape(gammaRx,Nlat,Nspin,Norb)
+    Hsym_basis(:,:,:,:,:,2)=lso2nnn_reshape(gammaRy,Nlat,Nspin,Norb)
+    Hsym_basis(:,:,:,:,:,3)=lso2nnn_reshape(gammaRz,Nlat,Nspin,Norb)
+      if(afmkick)then
+         !AFM initial 'kick', if requested in the inputfile
+         lambdasym_vector(1)=sb_field
+         lambdasym_vector(2)=sb_field
+         lambdasym_vector(3)=sb_field
+         if(master)write(*,*) "************************************************"
+         if(master)write(*,*) "*                                              *"
+         if(master)write(*,*) "*  !Applying an AFM kick to the initial bath!  *"
+         if(master)write(*,*) "*                                              *"
+         if(master)write(*,*) "************************************************"
+      endif
+   call ed_set_Hloc(Hsym_basis,lambdasym_vector)
+   Nb=ed_get_bath_dimension(Hsym_basis)
+   allocate(Bath(Nlat,Nb))
+   allocate(Bath_prev(Nlat,Nb))
+   call ed_init_solver(comm,bath)
+  else
+    !Usual bath initialization (no symmetry-basis for the Hloc)
+    Nb=ed_get_bath_dimension()
+    allocate(Bath(Nlat,Nb))
+    allocate(Bath_prev(Nlat,Nb))
+    call ed_init_solver(comm,Bath,Hloc)
+      if(afmkick)then
+         !AFM initial 'kick', if requested in the inputfile
+         do ilat=1,Nlat
+            call ed_break_symmetry_bath(Bath(ilat,:),sb_field,(-1d0)**(ilat+1))
+         enddo
+         if(master)write(*,*) "************************************************"
+         if(master)write(*,*) "*                                              *"
+         if(master)write(*,*) "*  !Applying an AFM kick to the initial bath!  *"
+         if(master)write(*,*) "*                                              *"
+         if(master)write(*,*) "************************************************"
+      endif
+   endif
 
   !DMFT loop
   iloop=0;converged=.false.
@@ -155,6 +202,7 @@ program ed_kanemele
         	call ed_get_sigma_realaxis(Sreal(ilat,:,:,:,:,:))
      	enddo
      else
+      if(ed_mode=="nonsu2")stop "NEELSYM is still unsupported for NONSU2 mode! Don't request them together."
      	!Solve just atom A and get atom B by Neel symmetry
      	call ed_solve(comm,Bath(1,:),Hloc(1,:,:,:,:))
      	call ed_get_sigma_matsubara(Smats(1,:,:,:,:,:))
@@ -168,6 +216,7 @@ program ed_kanemele
      	if(master)write(*,*) "*  !Enforcing Neel symmetry!  *"
      	if(master)write(*,*) "*                             *"
      	if(master)write(*,*) "*******************************"
+      !TO DO: adapt NeelSym enforcing for non-MagZ AFM solutions!
      endif
      !
      ! compute the local gf:
