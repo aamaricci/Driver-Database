@@ -31,7 +31,7 @@ ifeq ($(PLAT),gnu)
 FFLAG = -O2 -ffree-line-length-none
 DFLAG = -O2 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
 OFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
-FPPFLAG =-cpp
+FPPFLAG =-cpp -D_MPI
 endif
 
 
@@ -44,7 +44,7 @@ VER = 'character(len=41),parameter :: revision = "$(REV)"' > revision.inc
 ##$ Extends the implicit support of the Makefile to .f90 files
 .SUFFIXES: .f90
 
-all: FLAG:=${FFLAG}
+all: FLAG:=${FFLAG} ${FPPFLAG}
 all:
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ")
@@ -52,7 +52,7 @@ all:
 	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
 
-debug: FLAG:=${DFLAG}
+debug: FLAG:=${DFLAG} ${FPPFLAG}
 debug:
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ")
