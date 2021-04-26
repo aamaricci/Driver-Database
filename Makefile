@@ -3,7 +3,7 @@
 #$ COMPILER: suppprted compilers are ifort, gnu >v4.7 or use mpif90
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default if $HOME/.bin in the PATH)
-EXE=ed_bhz_2d
+EXE=ss_hm_bethe
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
@@ -18,18 +18,18 @@ endef
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-GLOB_INC:=$(shell pkg-config --cflags dmft_ed dmft_tools scifor)
-GLOB_LIB:=$(shell pkg-config --libs   dmft_ed dmft_tools scifor)
+GLOB_INC:=$(shell pkg-config --cflags slave_spins dmft_ed dmft_tools scifor)
+GLOB_LIB:=$(shell pkg-config --libs   slave_spins dmft_ed dmft_tools scifor)
 
 ifeq ($(PLAT),intel)
 FFLAG=-O2 -ftz
 OFLAG=-O3 -ftz
-DFLAG=-p -O0 -g -fpe0 -warn -warn errors -debuEg extended -traceback -check all,noarg_temp_created
+DFLAG=-p -O0 -g -fpe0 -warn -warn errors -debug extended -traceback -check all,noarg_temp_created
 FPPFLAG =-fpp
 endif
 ifeq ($(PLAT),gnu)
 FFLAG = -O2 -ffree-line-length-none
-FFLAG = -O2 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
+DFLAG = -O2 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
 OFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
 FPPFLAG =-cpp
 endif

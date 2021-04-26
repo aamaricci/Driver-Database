@@ -1,0 +1,7 @@
+############  calclambda0, moveon #########
+.false., .true.  ! if moveon=.false. it just writes the lambda0's and chemical potential (for U=0) for the requested filling
+############   prefix, calckHam ###########
+xxxx, .false.
+############  verb (verbose mode) #########
+F
+
