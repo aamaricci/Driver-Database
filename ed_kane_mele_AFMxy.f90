@@ -35,9 +35,9 @@ program ed_kanemele
   real(8)                                       :: t1,t2,phi,Mh,wmixing
   character(len=32)                             :: finput
   character(len=32)                             :: hkfile
-  logical                                       :: spinsym,neelsym,afmkick,getbands
+  logical                                       :: afmxy,getbands
   real(8),allocatable,dimension(:)              :: dens
-  real(8),dimension(:),allocatable              :: lambdasym_vector
+  real(8),dimension(:,:),allocatable            :: lambdasym_vector ![Nlat,:]
   complex(8),dimension(:,:,:,:,:),allocatable   :: Hsym_basis
 
   !MPI
@@ -60,9 +60,7 @@ program ed_kanemele
   call parse_input_variable(phi,"PHI",finput,default=pi/2d0,comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
   call parse_input_variable(mh,"MH",finput,default=0d0, comment='On-site staggering, aka Semenoff-Mass term')
   call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0, comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
-  call parse_input_variable(spinsym,"SPINSYM",finput,default=.true.,comment='T fits just one spin bath (and copies on the other); F fits both. For full spin freedom set to false and use ed_mode=nonsu2.')
-  call parse_input_variable(neelsym,"NEELSYM",finput,default=.false.,comment='If T AFM symmetry is enforced programmatically at each loop. Not with SPINSYM.')
-  call parse_input_variable(afmkick,"AFMKICK",finput,default=.false.,comment='If T the spin baths get an initial antiferromagnetic distortion. Not with SPINSYM.')
+  call parse_input_variable(afmxy,"AFMxy",finput,default=.false.,comment='If T the (replica) bath will be forcefully constrained to ~Sx and ~Sy components')
   call parse_input_variable(getbands,"GETBANDS",finput,default=.false.,comment='If T the noninteracting model is solved and the bandstructure stored')
   !
   call ed_read_input(trim(finput),comm)
@@ -76,9 +74,7 @@ program ed_kanemele
   call add_ctrl_var(eps,"eps")
 
 
-  if(neelsym.AND.spinsym)stop "Wrong setup from input file: NEELSYM=T not with SPINSYM=T"
-  if(afmkick.AND.spinsym)stop "Wrong setup from input file: AFMKICK=T not with SPINSYM=T"
-
+  if(.not.(bath_type=="replica".AND.ed_mode=='nonsu2'))stop "Wrong setup from input file: AFMxy requires NONSU2-mode and REPLICA-bath"
   if(Norb/=1.OR.Nspin/=2)stop "Wrong setup from input file: Norb=1 AND Nspin=2 is the correct configuration for the model."
   Nlat=2
   Nso=Nspin*Norb
@@ -122,38 +118,35 @@ program ed_kanemele
 
 
   !Setup solver
-  if(bath_type=="replica")then
-   !Setup HLOC symmetries: 
-    allocate(lambdasym_vector(3))
+   !Setup Hreplica symmetries: 
+   if(AFMxy)then  !Only ~XY spin components in the bath
+    allocate(lambdasym_vector(Nlat,3))
     allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
-    Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_x,Nspin,Norb); lambdasym_vector(1) = sb_field
-    Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_y,Nspin,Norb); lambdasym_vector(2) = sb_field
-    Hsym_basis(:,:,:,:,3)=so2nn_reshape(pauli_sigma_z,Nspin,Norb); lambdasym_vector(3) = sb_field
-    call ed_set_Hloc(Hsym_basis,lambdasym_vector)
+    Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
+    Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_x,Nspin,Norb)
+    Hsym_basis(:,:,:,:,3)=so2nn_reshape(pauli_sigma_y,Nspin,Norb)
+    lambdasym_vector(1,:)=[0d0, sb_field,-sb_field]
+    lambdasym_vector(2,:)=[0d0, -sb_field,sb_field]
+   else           !Full XYZ spin freedom in the bath
+    allocate(lambdasym_vector(Nlat,4))
+    allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,4))
+    Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
+    Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_x,Nspin,Norb)
+    Hsym_basis(:,:,:,:,3)=so2nn_reshape(pauli_sigma_y,Nspin,Norb)
+    Hsym_basis(:,:,:,:,4)=so2nn_reshape(pauli_sigma_z,Nspin,Norb);
+    lambdasym_vector(1,:)=[0d0, sb_field,-sb_field,0d0]
+    lambdasym_vector(2,:)=[0d0, -sb_field,sb_field,0d0]
+   endif
+    
     Nb=ed_get_bath_dimension(Hsym_basis)
     allocate(Bath(Nlat,Nb))
     allocate(Bath_prev(Nlat,Nb))
-    call ed_init_solver(comm,Bath)
-  else
-   !Usual bath initialization (no symmetry-basis for the Hloc)
-    Nb=ed_get_bath_dimension()
-    allocate(Bath(Nlat,Nb))
-    allocate(Bath_prev(Nlat,Nb))
-    call ed_init_solver(comm,Bath,Hloc)
-   endif
+    do ilat = 1,Nlat
+      call ed_set_Hloc(Hsym_basis,lambdasym_vector(ilat,:))
+      call ed_init_solver(comm,Bath(ilat,:))
+    end do
 
 
-   !AFM initial 'kick', if requested in the inputfile
-   if(afmkick)then
-      do ilat=1,Nlat
-         call ed_break_symmetry_bath(Bath(ilat,:),sb_field,(-1d0)**(ilat+1))
-      enddo
-      if(master)write(*,*) "************************************************"
-      if(master)write(*,*) "*                                              *"
-      if(master)write(*,*) "*  !Applying an AFM kick to the initial bath!  *"
-      if(master)write(*,*) "*                                              *"
-      if(master)write(*,*) "************************************************"
-   endif
 
 
   !DMFT loop
@@ -163,30 +156,14 @@ program ed_kanemele
      call start_loop(iloop,nloop,"DMFT-loop")
      !
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-     if(.not.neelsym)then
-     	!Solve separately the two atoms:
-     	do ilat=1,Nlat
-        	call ed_solve(comm,Bath(ilat,:),Hloc(ilat,:,:,:,:))
-        	call ed_get_sigma_matsubara(Smats(ilat,:,:,:,:,:))
-        	call ed_get_sigma_realaxis(Sreal(ilat,:,:,:,:,:))
-     	enddo
-     else
-      if(ed_mode=="nonsu2")stop "NEELSYM is still unsupported for NONSU2 mode! Don't request them together."
-     	!Solve just atom A and get atom B by Neel symmetry
-     	call ed_solve(comm,Bath(1,:),Hloc(1,:,:,:,:))
-     	call ed_get_sigma_matsubara(Smats(1,:,:,:,:,:))
-     	call ed_get_sigma_realaxis(Sreal(1,:,:,:,:,:))
-     	Smats(2,2,2,:,:,:) = Smats(1,1,1,:,:,:) !S(iw)_{B,dw,dw} = S(iw)_{A,up,up}
-     	Smats(2,1,1,:,:,:) = Smats(1,2,2,:,:,:) !S(iw)_{B,up,up} = S(iw)_{A,dw,dw}
-     	Sreal(2,2,2,:,:,:) = Sreal(1,1,1,:,:,:) !S(w)_{B,dw,dw}  = S(w)_{A,up,up}
-     	Sreal(2,1,1,:,:,:) = Sreal(1,2,2,:,:,:) !S(w)_{B,up,up}  = S(w)_{A,dw,dw}
-     	if(master)write(*,*) "*******************************"
-     	if(master)write(*,*) "*                             *"
-     	if(master)write(*,*) "*  !Enforcing Neel symmetry!  *"
-     	if(master)write(*,*) "*                             *"
-     	if(master)write(*,*) "*******************************"
-      !TO DO: adapt NeelSym enforcing for non-MagZ AFM solutions!
-     endif
+        !Solve separately the two atoms:
+        do ilat=1,Nlat
+         call ed_set_suffix(ilat) !this is needed to print different files for different sites
+           call ed_solve(comm,Bath(ilat,:),Hloc(ilat,:,:,:,:))!-------> Do we really have to pass Hloc?
+           call ed_get_sigma_matsubara(Smats(ilat,:,:,:,:,:))
+           call ed_get_sigma_realaxis(Sreal(ilat,:,:,:,:,:))
+        enddo
+      call ed_reset_suffix()     !look at ed_set_suffix...
      !
      ! compute the local gf:
      call dmft_gloc_matsubara(Hk,Gmats,Smats)
@@ -206,16 +183,15 @@ program ed_kanemele
      !IF(SUPERC): gives error, superconductivity is not allowed here!
      select case(ed_mode)
      case default
-        stop "ed_mode!=Normal/Nonsu2"
-     case("normal")
-        call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=1)
-        if(.not.spinsym)then
-           call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=2)
-        else
-           call ed_spin_symmetrize_bath(bath,save=.true.)
-        endif
-     case("nonsu2")
-        call ed_chi2_fitgf(comm,Bath,Weiss,Hloc)
+        stop "ed_mode!=Nonsu2"
+     case("nonsu2") !With replica-bath we fit separately the two sites: no RDMFT wrapper, directly with the chi2_fitgf_replica implementation instead.
+      if(bath_type=='replica')then
+         do ilat=1,Nlat
+            call ed_set_suffix(ilat) !this is needed to print different files for different sites
+            call ed_chi2_fitgf(comm,Weiss(ilat,:,:,:,:,:),Bath(ilat,:))
+         enddo
+         call ed_reset_suffix()      !look at ed_set_suffix...
+      endif
      end select
      !
      !MIXING:
@@ -341,7 +317,7 @@ contains
     !------- New Version [Consistent with Bernevig&Hughes book] -----------
     ! This way the Hamiltonian will have a Bloch structure so we can obtain 
     ! local (i.e. in the unit-cell) quantities by averaging over all k-points. 
-    real(8)			     :: kdote1, kdote2
+    real(8)           :: kdote1, kdote2
     !
     kdote1 = dot_product(kpoint,e1)
     kdote2 = dot_product(kpoint,e2)
