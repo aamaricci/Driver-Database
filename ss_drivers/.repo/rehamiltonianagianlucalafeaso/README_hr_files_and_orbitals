@@ -1,0 +1,14 @@
+DFT calculation + Wannier from G Giovannetti.
+
+Output:
+
+FeSe_hr.dat -> Raw output from Wannier90: 2 Fe sites
+
+hr.dat.out -> 1Fe file from GG
+
+Conventions here are:  z^2-r^2,  xz,  yz,  x^2-y^2,  xy
+
+
+hr_oo.dat -> file with change of orbitals for Lanatà's conventions (x^2-y^2, xz, z^2-r^2, yz, xy)
+
+All calculations done before 28 October 2013 are done with Lanata's file because I didn't have the original GG one.

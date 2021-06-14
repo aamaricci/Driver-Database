@@ -1,0 +1,8 @@
+       ### Correlations: U, J/U		      	             
+       2.2d0,  0.25d0    			     
+       ### Inverse temperature, final total population     	     
+       100000d0,  1.92d0				     
+       ## !! hoppings, energies and hybridizations are dummy if the flag DFTplusSS is .true. 
+       0.50 0.50 0.50   ! Hoppings, orbitals 1 to M             
+       0.d0 0.d0 0.d0	! orbital energies, orbitals 1 to M  
+       0.d0,0.d0  ! local hybridization, non local hybridization    
