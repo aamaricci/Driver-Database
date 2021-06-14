@@ -165,6 +165,8 @@ program ed_bhz
         Hsym_basis(:,:,:,:,4)=j2so(GammaEx) ;lambdasym_vector(4)=-sb_field
 
      case("E0EzExEy")
+        allocate(lambdasym_vector(5))
+        allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,5))
         Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
         Hsym_basis(:,:,:,:,2)=j2so(GammaE0) ;lambdasym_vector(2)=sb_field
         Hsym_basis(:,:,:,:,3)=j2so(GammaEz) ;lambdasym_vector(3)=sb_field
@@ -470,6 +472,3 @@ contains
 
 
 end program ed_bhz
-
-
-

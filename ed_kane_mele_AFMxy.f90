@@ -35,9 +35,12 @@ program ed_kanemele
   real(8)                                       :: t1,t2,phi,Mh,wmixing
   character(len=32)                             :: finput
   character(len=32)                             :: hkfile
-  logical                                       :: spinsym,neelsym
-  !
+  logical                                       :: afmxy,getbands
   real(8),allocatable,dimension(:)              :: dens
+  real(8),dimension(:,:),allocatable            :: lambdasym_vector ![Nlat,:]
+  complex(8),dimension(:,:,:,:,:),allocatable   :: Hsym_basis
+
+  !MPI
   integer                                     :: comm,rank
   logical                                     :: master
 
@@ -49,16 +52,16 @@ program ed_kanemele
 
   !Parse additional variables && read Input && read H(k)^2x2
   call parse_cmd_variable(finput,"FINPUT",default='inputKANEMELE.conf')
-  call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in")
-  call parse_input_variable(nk,"NK",finput,default=100)
-  call parse_input_variable(nkpath,"NKPATH",finput,default=500)
+  call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in",comment='Hk will be written here')
+  call parse_input_variable(nk,"NK",finput,default=100,comment='Number of kpoints per direction')
+  call parse_input_variable(nkpath,"NKPATH",finput,default=500,comment='Number of kpoints per interval on kpath. Relevant only if GETBANDS=T.')
   call parse_input_variable(t1,"T1",finput,default=2d0,comment='NN hopping, fixes noninteracting bandwidth')
   call parse_input_variable(t2,"T2",finput,default=0d0,comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
   call parse_input_variable(phi,"PHI",finput,default=pi/2d0,comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
   call parse_input_variable(mh,"MH",finput,default=0d0, comment='On-site staggering, aka Semenoff-Mass term')
   call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0, comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
-  call parse_input_variable(spinsym,"SPINSYM",finput,default=.true.,comment='T fits just one spin bath (and copies on the other); F fits both. For full spin freedom set to false and use ed_mode=nonsu2.')
-  call parse_input_variable(neelsym,"NEELSYM",finput,default=.false.,comment='Refers to AFM ordering; currently has no real consequence on this driver.')
+  call parse_input_variable(afmxy,"AFMxy",finput,default=.false.,comment='If T the (replica) bath will be forcefully constrained to ~Sx and ~Sy components')
+  call parse_input_variable(getbands,"GETBANDS",finput,default=.false.,comment='If T the noninteracting model is solved and the bandstructure stored')
   !
   call ed_read_input(trim(finput),comm)
   !
@@ -71,13 +74,11 @@ program ed_kanemele
   call add_ctrl_var(eps,"eps")
 
 
-  if(neelsym.AND.spinsym)stop "Wrong setup from input file: NEELSYM=T not with SPINSYM=T"
-
+  if(.not.(bath_type=="replica".AND.ed_mode=='nonsu2'))stop "Wrong setup from input file: AFMxy requires NONSU2-mode and REPLICA-bath"
   if(Norb/=1.OR.Nspin/=2)stop "Wrong setup from input file: Norb=1 AND Nspin=2 is the correct configuration for the model."
   Nlat=2
   Nso=Nspin*Norb
   Nlso=Nlat*Nso                 !=4 = 2(ineq sites)*2(spin)*1(orb)
-
 
   !Lattice basis (a=1; a0=sqrt3*a) is:
   !e_1 = a0 [ sqrt3/2 , 1/2 ] = 3/2a[1, 1/sqrt3]
@@ -95,8 +96,6 @@ program ed_kanemele
   a2 = d2-d3                    !3/2*a[1,-1/sqrt3]
   a3 = d1-d2
 
-
-
   !RECIPROCAL LATTICE VECTORS:
   bklen=2d0*pi/3d0
   bk1=bklen*[ 1d0, sqrt(3d0)] 
@@ -105,7 +104,7 @@ program ed_kanemele
 
 
   !Build the Hamiltonian on a grid or on path
-  call build_hk(trim(hkfile))
+  call build_hk(trim(hkfile),getbands)
   allocate(Hloc(Nlat,Nspin,Nspin,Norb,Norb));Hloc=zero
   Hloc = lso2nnn_reshape(kmHloc,Nlat,Nspin,Norb)
 
@@ -119,10 +118,35 @@ program ed_kanemele
 
 
   !Setup solver
-  Nb=ed_get_bath_dimension()
-  allocate(Bath(Nlat,Nb))
-  allocate(Bath_prev(Nlat,Nb))
-  call ed_init_solver(comm,Bath,Hloc)
+   !Setup Hreplica symmetries: 
+   if(AFMxy)then  !Only ~XY spin components in the bath
+    allocate(lambdasym_vector(Nlat,3))
+    allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
+    Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
+    Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_x,Nspin,Norb)
+    Hsym_basis(:,:,:,:,3)=so2nn_reshape(pauli_sigma_y,Nspin,Norb)
+    lambdasym_vector(1,:)=[0d0, sb_field,-sb_field]
+    lambdasym_vector(2,:)=[0d0, -sb_field,sb_field]
+   else           !Full XYZ spin freedom in the bath
+    allocate(lambdasym_vector(Nlat,4))
+    allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,4))
+    Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
+    Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_x,Nspin,Norb)
+    Hsym_basis(:,:,:,:,3)=so2nn_reshape(pauli_sigma_y,Nspin,Norb)
+    Hsym_basis(:,:,:,:,4)=so2nn_reshape(pauli_sigma_z,Nspin,Norb);
+    lambdasym_vector(1,:)=[0d0, sb_field,-sb_field,0d0]
+    lambdasym_vector(2,:)=[0d0, -sb_field,sb_field,0d0]
+   endif
+    
+    Nb=ed_get_bath_dimension(Hsym_basis)
+    allocate(Bath(Nlat,Nb))
+    allocate(Bath_prev(Nlat,Nb))
+    do ilat = 1,Nlat
+      call ed_set_Hloc(Hsym_basis,lambdasym_vector(ilat,:))
+      call ed_init_solver(comm,Bath(ilat,:))
+    end do
+
+
 
 
   !DMFT loop
@@ -132,15 +156,14 @@ program ed_kanemele
      call start_loop(iloop,nloop,"DMFT-loop")
      !
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-     !Solve separately the two atoms:
-     do ilat=1,Nlat
-        call ed_solve(comm,Bath(ilat,:),Hloc(ilat,:,:,:,:))
-        call ed_get_sigma_matsubara(Smats(ilat,:,:,:,:,:))
-        call ed_get_sigma_realaxis(Sreal(ilat,:,:,:,:,:))
-     enddo
-     !
-     ! Smats(2,2,2,:,:,:) = -Smats(1,1,1,:,:,:) !sub_B(dw,dw) = -sub_A(up,up)
-     ! Smats(2,1,1,:,:,:) = -Smats(1,2,2,:,:,:) !sub_B(up,up) = -sub_A(dw,dw)
+        !Solve separately the two atoms:
+        do ilat=1,Nlat
+         call ed_set_suffix(ilat) !this is needed to print different files for different sites
+           call ed_solve(comm,Bath(ilat,:),Hloc(ilat,:,:,:,:))!-------> Do we really have to pass Hloc?
+           call ed_get_sigma_matsubara(Smats(ilat,:,:,:,:,:))
+           call ed_get_sigma_realaxis(Sreal(ilat,:,:,:,:,:))
+        enddo
+      call ed_reset_suffix()     !look at ed_set_suffix...
      !
      ! compute the local gf:
      call dmft_gloc_matsubara(Hk,Gmats,Smats)
@@ -156,20 +179,19 @@ program ed_kanemele
      !Fit the new bath, starting from the old bath + the supplied delta
      !Behaves differently depending on the ed_mode input:
      !IF(NORMAL): normal/magZ phase is solved, so either fit spin1 or spin1&2 -> SPINSYM of choice
-     !IF(NONSU2): Sz-conservation broken, SOI or magXY, fit both spins -> SPINSYM has to be false
+     !IF(NONSU2): Sz-conservation is broken -> magXY, fit both spins -> SPINSYM *has* to be false
      !IF(SUPERC): gives error, superconductivity is not allowed here!
      select case(ed_mode)
      case default
-        stop "ed_mode!=Normal/Nonsu2"
-     case("normal")
-        call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=1)
-        if(.not.spinsym)then
-           call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=2)
-        else
-           call ed_spin_symmetrize_bath(bath,save=.true.)
-        endif
-     case("nonsu2")
-        call ed_chi2_fitgf(comm,Bath,Weiss,Hloc)
+        stop "ed_mode!=Nonsu2"
+     case("nonsu2") !With replica-bath we fit separately the two sites: no RDMFT wrapper, directly with the chi2_fitgf_replica implementation instead.
+      if(bath_type=='replica')then
+         do ilat=1,Nlat
+            call ed_set_suffix(ilat) !this is needed to print different files for different sites
+            call ed_chi2_fitgf(comm,Weiss(ilat,:,:,:,:,:),Bath(ilat,:))
+         enddo
+         call ed_reset_suffix()      !look at ed_set_suffix...
+      endif
      end select
      !
      !MIXING:
@@ -189,7 +211,7 @@ program ed_kanemele
   call dmft_gloc_realaxis(Hk,Greal,Sreal)
   call dmft_print_gf_realaxis(Greal,"Greal",iprint=4)
 
-  if(master)write(*,*) "getting kinetic energy"
+  !Compute Kinetic Energy
   call dmft_kinetic_energy(Hk,Smats)
 
   if(master) then
@@ -210,7 +232,7 @@ contains
   !---------------------------------------------------------------------
   !PURPOSE: Get Kane Mele Model Hamiltonian
   !---------------------------------------------------------------------
-  subroutine build_hk(file)
+  subroutine build_hk(file,getbands)
     character(len=*),optional          :: file
     integer                            :: i,j,ik
     integer                            :: ix,iy
@@ -221,6 +243,7 @@ contains
     integer                            :: ispin,jspin
     integer                            :: unit
     real(8),dimension(:,:),allocatable :: KPath
+    logical                            :: getbands
     !
     Lk= Nk*Nk
     write(LOGfile,*)"Build H(k) Kane-Mele:",Lk
@@ -241,19 +264,27 @@ contains
     if(master)call TB_write_Hloc(kmHloc,'Hloc.txt')
     !
     !
-    ! pointK = [2*pi/3, 2*pi/3/sqrt(3d0)]
-    ! pointKp= [2*pi/3,-2*pi/3/sqrt(3d0)]
-    ! if(master)then
-    !    allocate(Kpath(4,2))
-    !    KPath(1,:)=[0,0]
-    !    KPath(2,:)=pointK
-    !    Kpath(3,:)=pointKp
-    !    KPath(4,:)=[0d0,0d0]
-    !    call TB_Solve_model(hk_kanemele_model,Nlso,KPath,Nkpath,&
-    !         colors_name=[red1,blue1,red1,blue1],&
-    !         points_name=[character(len=10) :: "G","K","K`","G"],&
-    !         file="Eigenbands.nint",iproject=.false.)
-    ! endif
+    if(getbands)then
+     pointK = [2*pi/3, 2*pi/3/sqrt(3d0)]
+     pointKp= [2*pi/3,-2*pi/3/sqrt(3d0)]
+     if(master)write(*,*) "***************************************"
+     if(master)write(*,*) "*                                     *"
+     if(master)write(*,*) "*  !Solving noninteracting TB model!  *"
+     if(master)write(*,*) "*                                     *"
+     if(master)write(*,*) "***************************************"
+     if(master)then
+        allocate(Kpath(4,2))
+        KPath(1,:)=[0,0]
+        KPath(2,:)=pointK
+        Kpath(3,:)=pointKp
+        KPath(4,:)=[0d0,0d0]
+        call TB_Solve_model(hk_kanemele_model,Nlso,KPath,Nkpath,&
+             colors_name=[red1,blue1,red1,blue1],&
+             points_name=[character(len=10) :: "G","K","K`","G"],&
+             file="Eigenbands.nint",iproject=.false.)
+     endif
+    endif
+    !
   end subroutine build_hk
 
 
@@ -283,11 +314,10 @@ contains
     !hy =-t1*sum( sin(kdotd(:)) )
     !hz = 2*t2*sin(phi)*sum( sin(kdota(:)) )
     !
-    !
-    !----- New Version [Consistent with Bernevig&Hughes book] ---------
-    ! This way of creating the Hamiltonian we get a Bloch structure and can obtain local
-    ! (i.e. in the unit-cell) quantities by averaging over all k-points. 
-    real(8)			     :: kdote1, kdote2
+    !------- New Version [Consistent with Bernevig&Hughes book] -----------
+    ! This way the Hamiltonian will have a Bloch structure so we can obtain 
+    ! local (i.e. in the unit-cell) quantities by averaging over all k-points. 
+    real(8)           :: kdote1, kdote2
     !
     kdote1 = dot_product(kpoint,e1)
     kdote2 = dot_product(kpoint,e2)
@@ -312,13 +342,13 @@ contains
 
 
 
+
+
   !--------------------------------------------------------------------!
   !Reshaping functions:                                                !
   !--------------------------------------------------------------------!
 
-
-
-  function nnn2nlso_reshape(Fin,Nlat,Nspin,Norb) result(Fout)
+  function nnn2lso_reshape(Fin,Nlat,Nspin,Norb) result(Fout)
     integer                                               :: Nlat,Nspin,Norb
     complex(8),dimension(Nlat,Nspin,Nspin,Norb,Norb)      :: Fin
     complex(8),dimension(Nlat*Nspin*Norb,Nlat*Nspin*Norb) :: Fout
@@ -338,7 +368,7 @@ contains
           enddo
        enddo
     enddo
-  end function nnn2nlso_reshape
+  end function nnn2lso_reshape
 
   function lso2nnn_reshape(Fin,Nlat,Nspin,Norb) result(Fout)
     integer                                               :: Nlat,Nspin,Norb
@@ -361,6 +391,46 @@ contains
        enddo
     enddo
   end function lso2nnn_reshape
+
+  function so2nn_reshape(Fin,Nspin,Norb) result(Fout)
+   integer                                               :: Nspin,Norb
+   complex(8),dimension(Nspin*Norb,Nspin*Norb)           :: Fin
+   complex(8),dimension(Nspin,Nspin,Norb,Norb)           :: Fout
+   integer                                               :: iorb,ispin,ilat,is
+   integer                                               :: jorb,jspin,js
+   Fout=zero
+   do ispin=1,Nspin
+      do jspin=1,Nspin
+         do iorb=1,Norb
+            do jorb=1,Norb
+               is = iorb + (ispin-1)*Norb !spin-orbit stride
+               js = jorb + (jspin-1)*Norb !spin-orbit stride
+               Fout(ispin,jspin,iorb,jorb) = Fin(is,js)
+            enddo
+         enddo
+      enddo
+   enddo
+  end function so2nn_reshape
+
+  function nn2so_reshape(Fin,Nspin,Norb) result(Fout)
+   integer                                               :: Nspin,Norb
+   complex(8),dimension(Nspin,Nspin,Norb,Norb)           :: Fin
+   complex(8),dimension(Nspin*Norb,Nspin*Norb)           :: Fout
+   integer                                               :: iorb,ispin,ilat,is
+   integer                                               :: jorb,jspin,js
+   Fout=zero
+   do ispin=1,Nspin
+      do jspin=1,Nspin
+         do iorb=1,Norb
+            do jorb=1,Norb
+               is = iorb + (ispin-1)*Norb !spin-orbit stride
+               js = jorb + (jspin-1)*Norb !spin-orbit stride
+               Fout(is,js) = Fin(ispin,jspin,iorb,jorb)
+            enddo
+         enddo
+      enddo
+   enddo
+  end function nn2so_reshape
 
 
 
