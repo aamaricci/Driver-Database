@@ -482,6 +482,3 @@ contains
 
 
 end program ed_bhz
-
-
-
