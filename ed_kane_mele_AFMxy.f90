@@ -178,7 +178,7 @@ program ed_kanemele
      call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=4)
      !
      !FIT THE NEW BATH, starting from the old bath + the supplied delta
-     !IF(NONSU2): Sz-conservation is broken -> magXY, fit both spins -> SPINSYM *has* to be false
+     !IF(NONSU2): Sz-conservation is broken -> Allows for magXY
      call ed_chi2_fitgf(comm,Bath,Weiss,Hloc) !Hloc mandatory here, it sets impHloc
      !
      !MIXING:

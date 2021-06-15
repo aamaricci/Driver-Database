@@ -130,7 +130,7 @@ program ed_kanemele
   Nb=ed_get_bath_dimension()
   allocate(Bath(Nlat,Nb))
   allocate(Bath_prev(Nlat,Nb))
-  call ed_init_solver(comm,Bath,Hloc)
+  call ed_init_solver(comm,Bath)
   !AFM initial 'kick', if requested in the inputfile
   if(afmkick)then
       do ilat=1,Nlat
@@ -178,11 +178,11 @@ program ed_kanemele
         if(master)write(*,*) "*******************************"
      endif
      !
-     !compute the local gf:
+     !COMPUTE THE LOCAL GF:
      call dmft_gloc_matsubara(Hk,Gmats,Smats)
      call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=4)
      !
-     !compute the Weiss field (only the Nineq ones)
+     !COMPUTE THE WEISS FIELD (only the Nineq ones)
      if(cg_scheme=='weiss')then
         call dmft_weiss(Gmats,Smats,Weiss,Hloc)
      else
@@ -192,8 +192,6 @@ program ed_kanemele
      !Fit the new bath, starting from the old bath + the supplied delta
      !Behaves differently depending on the ed_mode input:
      !IF(NORMAL): normal/magZ phase is solved, so either fit spin1 or spin1&2 -> SPINSYM of choice
-     !IF(NONSU2): Sz-conservation is broken -> magXY, fit both spins -> SPINSYM *has* to be false
-     !IF(SUPERC): gives error, superconductivity is not allowed here!
      select case(ed_mode)
      case default
         stop "ed_mode!=Normal"

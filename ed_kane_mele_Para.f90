@@ -152,7 +152,7 @@ program ed_kanemele
      if(.not.spinsym)then
         call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=2)
      else
-        call ed_spin_symmetrize_bath(bath,save=.true.)
+        call ed_spin_symmetrize_bath(bath,save=.true.) ! Copies ispin=1 fit on ispin=2
      endif
      !
      !MIXING:
@@ -350,51 +350,7 @@ contains
     enddo
   end function lso2nnn_reshape
 
-  function so2nn_reshape(Fin,Nspin,Norb) result(Fout)
-    integer                                               :: Nspin,Norb
-    complex(8),dimension(Nspin*Norb,Nspin*Norb)           :: Fin
-    complex(8),dimension(Nspin,Nspin,Norb,Norb)           :: Fout
-    integer                                               :: iorb,ispin,ilat,is
-    integer                                               :: jorb,jspin,js
-    Fout=zero
-    do ispin=1,Nspin
-       do jspin=1,Nspin
-          do iorb=1,Norb
-             do jorb=1,Norb
-                is = iorb + (ispin-1)*Norb !spin-orbit stride
-                js = jorb + (jspin-1)*Norb !spin-orbit stride
-                Fout(ispin,jspin,iorb,jorb) = Fin(is,js)
-             enddo
-          enddo
-       enddo
-    enddo
-  end function so2nn_reshape
-
-  function nn2so_reshape(Fin,Nspin,Norb) result(Fout)
-    integer                                               :: Nspin,Norb
-    complex(8),dimension(Nspin,Nspin,Norb,Norb)           :: Fin
-    complex(8),dimension(Nspin*Norb,Nspin*Norb)           :: Fout
-    integer                                               :: iorb,ispin,ilat,is
-    integer                                               :: jorb,jspin,js
-    Fout=zero
-    do ispin=1,Nspin
-       do jspin=1,Nspin
-          do iorb=1,Norb
-             do jorb=1,Norb
-                is = iorb + (ispin-1)*Norb !spin-orbit stride
-                js = jorb + (jspin-1)*Norb !spin-orbit stride
-                Fout(is,js) = Fin(ispin,jspin,iorb,jorb)
-             enddo
-          enddo
-       enddo
-    enddo
-  end function nn2so_reshape
-
-
-
-
-
-
+  
 
 end program ed_kanemele
 
