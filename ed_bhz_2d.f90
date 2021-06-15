@@ -184,20 +184,15 @@ program ed_bhz
         Hsym_basis(:,:,:,:,6)=j2so(GammaRz) ;lambdasym_vector(6)=sb_field
         Hsym_basis(:,:,:,:,7)=j2so(GammaRx) ;lambdasym_vector(7)=-sb_field
      end select
-
-
-     call ed_set_Hloc(Hsym_basis,lambdasym_vector)
+     call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
      Nb=ed_get_bath_dimension(Hsym_basis)
-     allocate(Bath(Nb))
-     allocate(Bath_(Nb))
-     call ed_init_solver(comm,bath)
-
   else     
      Nb=ed_get_bath_dimension()
-     allocate(Bath(Nb))
-     allocate(Bath_(Nb))
-     call ed_init_solver(comm,bath,Hloc=j2so(bhzHloc))
   endif
+
+  allocate(Bath(Nb))
+  allocate(Bath_(Nb))
+  call ed_init_solver(comm,bath)
 
 
   !DMFT loop
@@ -207,7 +202,7 @@ program ed_bhz
      call start_loop(iloop,nloop,"DMFT-loop")
 
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-     call ed_solve(comm,bath)
+     call ed_solve(comm,bath,Hloc=j2so(bhzHloc))
      call ed_get_sigma_matsubara(Smats)
      call ed_get_sigma_realaxis(Sreal)
      call ed_get_dens(dens)

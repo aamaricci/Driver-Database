@@ -8,28 +8,28 @@ program ed_kanemele
   integer                                       :: iloop,Lk,Nso,Nlso,Nlat,Nineq
   logical                                       :: converged
   integer                                       :: ispin,ilat!,i,j
-
+  !
   !Bath:
   integer                                       :: Nb
   real(8),allocatable,dimension(:,:)            :: Bath,Bath_prev
-
+  !
   !The local hybridization function:
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Weiss
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Smats,Sreal
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Gmats,Greal
-
+  !
   !hamiltonian input:
   complex(8),allocatable,dimension(:,:,:)       :: Hk
   complex(8),allocatable,dimension(:,:)         :: kmHloc
   complex(8),allocatable,dimension(:,:,:,:,:)   :: Hloc
-
+  !
   integer,allocatable,dimension(:)              :: ik2ix,ik2iy
   real(8),dimension(2)                          :: e1,e2   !real-space lattice basis
   real(8),dimension(2)                          :: bk1,bk2 !reciprocal space lattice basis
   real(8),dimension(2)                          :: d1,d2,d3
   real(8),dimension(2)                          :: a1,a2,a3
   real(8),dimension(2)                          :: bklen
-
+  !
   !variables for the model:
   integer                                       :: Nk,Nkpath
   real(8)                                       :: t1,t2,phi,Mh,wmixing
@@ -37,11 +37,13 @@ program ed_kanemele
   character(len=32)                             :: hkfile
   logical                                       :: spinsym,getbands
   real(8),allocatable,dimension(:)              :: dens
-
+  !
   !MPI
-  integer                                     :: comm,rank
-  logical                                     :: master
+  integer                                       :: comm,rank
+  logical                                       :: master
 
+
+  !MPI INIT:
   call init_MPI()
   comm = MPI_COMM_WORLD
   call StartMsg_MPI(comm)
@@ -71,22 +73,23 @@ program ed_kanemele
   call add_ctrl_var(wfin,'wfin')
   call add_ctrl_var(eps,"eps")
 
-  if(bath_type/="normal")stop "Wrong setup from input file: Normal BATH required here"
-
-  if(ed_mode/="normal")stop "Wrong setup from input file: Normal MODE required here"
-
+  !Some checks for this driver:
+  if(bath_type=="replica")stop "Wrong setup from input file: Normal/Hybrid BATH required here"
+  if(ed_mode/="normal")stop "Wrong setup from input file: Normal ED_MODE required here"
   if(Norb/=1.OR.Nspin/=2)stop "Wrong setup from input file: Norb=1 AND Nspin=2 is the correct configuration for the model."
   Nlat=2
   Nso=Nspin*Norb
   Nlso=Nlat*Nso                 !=4 = 2(ineq sites)*2(spin)*1(orb)
 
+
+  !SETUP LATTICE AND H(K)
   !Lattice basis (a=1; a0=sqrt3*a) is:
   !e_1 = a0 [ sqrt3/2 , 1/2 ] = 3/2a[1, 1/sqrt3]
   !e_2 = a0 [ sqrt3/2 ,-1/2 ] = 3/2a[1,-1/sqrt3]
   e1 = 3d0/2d0*[1d0, 1d0/sqrt(3d0)]
   e2 = 3d0/2d0*[1d0,-1d0/sqrt(3d0)]
 
-  !LATTICE BASIS: nearest neighbor: A-->B, B-->A
+  !lattice basis: nearest neighbor: A-->B, B-->A
   d1= [  1d0/2d0 , sqrt(3d0)/2d0 ]
   d2= [  1d0/2d0 ,-sqrt(3d0)/2d0 ]
   d3= [ -1d0     , 0d0           ]
@@ -96,12 +99,11 @@ program ed_kanemele
   a2 = d2-d3                    !3/2*a[1,-1/sqrt3]
   a3 = d1-d2
 
-  !RECIPROCAL LATTICE VECTORS:
+  !reciprocal lattice vectors:
   bklen=2d0*pi/3d0
   bk1=bklen*[ 1d0, sqrt(3d0)] 
   bk2=bklen*[ 1d0,-sqrt(3d0)]
   call TB_set_bk(bkx=bk1,bky=bk2)
-
 
   !Build the Hamiltonian on a grid or on path
   call build_hk(trim(hkfile),getbands)
@@ -109,7 +111,8 @@ program ed_kanemele
   Hloc = lso2nnn_reshape(kmHloc,Nlat,Nspin,Norb)
 
 
-  !Allocate Weiss Field:
+
+  !ALLOCATE LOCAL FIELD:
   allocate(Weiss(Nlat,Nspin,Nspin,Norb,Norb,Lmats));Weiss=zero
   allocate(Smats(Nlat,Nspin,Nspin,Norb,Norb,Lmats));Smats=zero
   allocate(Gmats(Nlat,Nspin,Nspin,Norb,Norb,Lmats));Gmats=zero
@@ -117,14 +120,11 @@ program ed_kanemele
   allocate(Greal(Nlat,Nspin,Nspin,Norb,Norb,Lreal));Greal=zero
 
 
-  !Setup solver
-  if(bath_type/="normal")stop "Normal BATH required here"
-   !Usual bath initialization (no symmetry-basis for the Hloc, matrix explicitly given)
-   Nb=ed_get_bath_dimension()
-   allocate(Bath(Nlat,Nb))
-   allocate(Bath_prev(Nlat,Nb))
-   call ed_init_solver(comm,Bath,Hloc)
-
+  !SETUP SOLVER
+  Nb=ed_get_bath_dimension()
+  allocate(Bath(Nlat,Nb))
+  allocate(Bath_prev(Nlat,Nb))
+  call ed_init_solver(comm,Bath)
 
   !DMFT loop
   iloop=0;converged=.false.
@@ -133,55 +133,37 @@ program ed_kanemele
      call start_loop(iloop,nloop,"DMFT-loop")
      !
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-        !Solve separately the two atoms:
-        do ilat=1,Nlat
-         call ed_set_suffix(ilat) !this is needed to print different files for different sites
-           call ed_solve(comm,Bath(ilat,:),Hloc(ilat,:,:,:,:))!??
-           call ed_get_sigma_matsubara(Smats(ilat,:,:,:,:,:))
-           call ed_get_sigma_realaxis(Sreal(ilat,:,:,:,:,:))
-        enddo
-      call ed_reset_suffix()     !look at ed_set_suffix...
+     !mpi_lanc=T => MPI lanczos, mpi_lanc=F => MPI for ineq sites
+     call ed_solve(comm,Bath,Hloc,mpi_lanc=.true.) 
+     call ed_get_sigma_matsubara(Smats,Nlat)
+     call ed_get_sigma_realaxis(Sreal,Nlat)
      !
-     ! compute the local gf:
+     !COMPUTE THE LOCAL GF:
      call dmft_gloc_matsubara(Hk,Gmats,Smats)
      call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=4)
      !
-     ! compute the Weiss field (only the Nineq ones)
-     if(cg_scheme=='weiss')then
-        call dmft_weiss(Gmats,Smats,Weiss,Hloc)
-     else
-        call dmft_delta(Gmats,Smats,Weiss,Hloc)
-     endif
+     !COMPUTE THE WEISS FIELD (only the Nineq ones)
+     call dmft_self_consistency(Gmats,Smats,Weiss,Hloc,cg_scheme)
+     call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=4)
      !
-     !Fit the new bath, starting from the old bath + the supplied delta
-     !Behaves differently depending on the ed_mode input:
-     !IF(NORMAL): normal/magZ phase is solved, so either fit spin1 or spin1&2 -> SPINSYM of choice
-     !IF(NONSU2): Sz-conservation is broken -> magXY, fit both spins -> SPINSYM *has* to be false
-     !IF(SUPERC): gives error, superconductivity is not allowed here!
-     select case(ed_mode)
-     case default
-        stop "ed_mode!=Normal"
-     case("normal") !Here we use the RDMFT WRAPPER: it takes the whole Bath and Weiss tensors (both ilat).
-        call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=1)
-        if(.not.spinsym)then
-           call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=2)
-        else
-           call ed_spin_symmetrize_bath(bath,save=.true.)
-        endif
-     end select
+     !FIT THE NEW BATH, starting from the old bath + the supplied delta
+     !(Bath,Weiss)==> RDMFT interface, Hloc mandatory here
+     call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=1)
+     if(.not.spinsym)then
+        call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=2)
+     else
+        call ed_spin_symmetrize_bath(bath,save=.true.)
+     endif
      !
      !MIXING:
      if(iloop>1)Bath=wmixing*Bath + (1.d0-wmixing)*Bath_prev
      Bath_prev=Bath
      !
-     !Check convergence. This is now entirely MPI-aware:
+     !CHECK CONVERGENCE. This is now entirely MPI-aware:
      converged = check_convergence(Weiss(:,1,1,1,1,:),dmft_error,nsuccess,nloop)
      !
      call end_loop
   enddo
-
-  call dmft_print_gf_matsubara(Gmats,"Gmats",iprint=4)
-
 
   !Extract and print retarded self-energy and Green's function 
   call dmft_gloc_realaxis(Hk,Greal,Sreal)
@@ -241,24 +223,24 @@ contains
     !
     !
     if(getbands)then
-     pointK = [2*pi/3, 2*pi/3/sqrt(3d0)]
-     pointKp= [2*pi/3,-2*pi/3/sqrt(3d0)]
-     if(master)write(*,*) "***************************************"
-     if(master)write(*,*) "*                                     *"
-     if(master)write(*,*) "*  !Solving noninteracting TB model!  *"
-     if(master)write(*,*) "*                                     *"
-     if(master)write(*,*) "***************************************"
-     if(master)then
-        allocate(Kpath(4,2))
-        KPath(1,:)=[0,0]
-        KPath(2,:)=pointK
-        Kpath(3,:)=pointKp
-        KPath(4,:)=[0d0,0d0]
-        call TB_Solve_model(hk_kanemele_model,Nlso,KPath,Nkpath,&
-             colors_name=[red1,blue1,red1,blue1],&
-             points_name=[character(len=10) :: "G","K","K`","G"],&
-             file="Eigenbands.nint",iproject=.false.)
-     endif
+       pointK = [2*pi/3, 2*pi/3/sqrt(3d0)]
+       pointKp= [2*pi/3,-2*pi/3/sqrt(3d0)]
+       if(master)write(*,*) "***************************************"
+       if(master)write(*,*) "*                                     *"
+       if(master)write(*,*) "*  !Solving noninteracting TB model!  *"
+       if(master)write(*,*) "*                                     *"
+       if(master)write(*,*) "***************************************"
+       if(master)then
+          allocate(Kpath(4,2))
+          KPath(1,:)=[0,0]
+          KPath(2,:)=pointK
+          Kpath(3,:)=pointKp
+          KPath(4,:)=[0d0,0d0]
+          call TB_Solve_model(hk_kanemele_model,Nlso,KPath,Nkpath,&
+               colors_name=[red1,blue1,red1,blue1],&
+               points_name=[character(len=10) :: "G","K","K`","G"],&
+               file="Eigenbands.nint",iproject=.false.)
+       endif
     endif
     !
   end subroutine build_hk
@@ -369,43 +351,43 @@ contains
   end function lso2nnn_reshape
 
   function so2nn_reshape(Fin,Nspin,Norb) result(Fout)
-   integer                                               :: Nspin,Norb
-   complex(8),dimension(Nspin*Norb,Nspin*Norb)           :: Fin
-   complex(8),dimension(Nspin,Nspin,Norb,Norb)           :: Fout
-   integer                                               :: iorb,ispin,ilat,is
-   integer                                               :: jorb,jspin,js
-   Fout=zero
-   do ispin=1,Nspin
-      do jspin=1,Nspin
-         do iorb=1,Norb
-            do jorb=1,Norb
-               is = iorb + (ispin-1)*Norb !spin-orbit stride
-               js = jorb + (jspin-1)*Norb !spin-orbit stride
-               Fout(ispin,jspin,iorb,jorb) = Fin(is,js)
-            enddo
-         enddo
-      enddo
-   enddo
+    integer                                               :: Nspin,Norb
+    complex(8),dimension(Nspin*Norb,Nspin*Norb)           :: Fin
+    complex(8),dimension(Nspin,Nspin,Norb,Norb)           :: Fout
+    integer                                               :: iorb,ispin,ilat,is
+    integer                                               :: jorb,jspin,js
+    Fout=zero
+    do ispin=1,Nspin
+       do jspin=1,Nspin
+          do iorb=1,Norb
+             do jorb=1,Norb
+                is = iorb + (ispin-1)*Norb !spin-orbit stride
+                js = jorb + (jspin-1)*Norb !spin-orbit stride
+                Fout(ispin,jspin,iorb,jorb) = Fin(is,js)
+             enddo
+          enddo
+       enddo
+    enddo
   end function so2nn_reshape
 
   function nn2so_reshape(Fin,Nspin,Norb) result(Fout)
-   integer                                               :: Nspin,Norb
-   complex(8),dimension(Nspin,Nspin,Norb,Norb)           :: Fin
-   complex(8),dimension(Nspin*Norb,Nspin*Norb)           :: Fout
-   integer                                               :: iorb,ispin,ilat,is
-   integer                                               :: jorb,jspin,js
-   Fout=zero
-   do ispin=1,Nspin
-      do jspin=1,Nspin
-         do iorb=1,Norb
-            do jorb=1,Norb
-               is = iorb + (ispin-1)*Norb !spin-orbit stride
-               js = jorb + (jspin-1)*Norb !spin-orbit stride
-               Fout(is,js) = Fin(ispin,jspin,iorb,jorb)
-            enddo
-         enddo
-      enddo
-   enddo
+    integer                                               :: Nspin,Norb
+    complex(8),dimension(Nspin,Nspin,Norb,Norb)           :: Fin
+    complex(8),dimension(Nspin*Norb,Nspin*Norb)           :: Fout
+    integer                                               :: iorb,ispin,ilat,is
+    integer                                               :: jorb,jspin,js
+    Fout=zero
+    do ispin=1,Nspin
+       do jspin=1,Nspin
+          do iorb=1,Norb
+             do jorb=1,Norb
+                is = iorb + (ispin-1)*Norb !spin-orbit stride
+                js = jorb + (jspin-1)*Norb !spin-orbit stride
+                Fout(is,js) = Fin(ispin,jspin,iorb,jorb)
+             enddo
+          enddo
+       enddo
+    enddo
   end function nn2so_reshape
 
 
