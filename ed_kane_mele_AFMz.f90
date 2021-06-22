@@ -157,7 +157,7 @@ program ed_kanemele
         !Solve separately the two atoms:
         do ilat=1,Nlat
          call ed_set_suffix(ilat) !this is needed to print different files for different sites
-           call ed_solve(comm,Bath(ilat,:),Hloc(ilat,:,:,:,:))!??
+           call ed_solve(comm,Bath(ilat,:),Hloc(ilat,:,:,:,:))!Hloc is mandatory here.
            call ed_get_sigma_matsubara(Smats(ilat,:,:,:,:,:))
            call ed_get_sigma_realaxis(Sreal(ilat,:,:,:,:,:))
         enddo
