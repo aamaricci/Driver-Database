@@ -18,7 +18,7 @@ program ed_kanemele
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Smats,Sreal
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Gmats,Greal
   !
-  !hamiltonian input:
+  !Hamiltonian input:
   complex(8),allocatable,dimension(:,:,:)       :: Hk
   complex(8),allocatable,dimension(:,:)         :: kmHloc
   complex(8),allocatable,dimension(:,:,:,:,:)   :: Hloc
@@ -30,13 +30,15 @@ program ed_kanemele
   real(8),dimension(2)                          :: a1,a2,a3
   real(8),dimension(2)                          :: bklen
   !
-  !variables for the model:
+  !Variables for the model:
   integer                                       :: Nk,Nkpath
   real(8)                                       :: t1,t2,phi,Mh,wmixing
   character(len=32)                             :: finput
   character(len=32)                             :: hkfile
-  logical                                       :: spinsym,getbands
   real(8),allocatable,dimension(:)              :: dens
+  !
+  !Flags and options
+  logical                                       :: spinsym,getbands
   !
   !MPI
   integer                                       :: comm,rank
@@ -55,11 +57,11 @@ program ed_kanemele
   call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in",comment='Hk will be written here')
   call parse_input_variable(nk,"NK",finput,default=100,comment='Number of kpoints per direction')
   call parse_input_variable(nkpath,"NKPATH",finput,default=500,comment='Number of kpoints per interval on kpath. Relevant only if GETBANDS=T.')
-  call parse_input_variable(t1,"T1",finput,default=2d0,comment='NN hopping, fixes noninteracting bandwidth')
+  call parse_input_variable(t1,"T1",finput,default=1d0,comment='NN hopping, fixes noninteracting bandwidth')
   call parse_input_variable(t2,"T2",finput,default=0d0,comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
   call parse_input_variable(phi,"PHI",finput,default=pi/2d0,comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
   call parse_input_variable(mh,"MH",finput,default=0d0, comment='On-site staggering, aka Semenoff-Mass term')
-  call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0, comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
+  call parse_input_variable(wmixing,"WMIXING",finput,default=0.1d0, comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
   call parse_input_variable(spinsym,"SPINSYM",finput,default=.true.,comment='T fits just one Sz component and copies on the other; F fits both independently.')
   call parse_input_variable(getbands,"GETBANDS",finput,default=.false.,comment='If T the noninteracting model is solved and the bandstructure stored')
   !
@@ -353,7 +355,3 @@ contains
   
 
 end program ed_kanemele
-
-
-
-

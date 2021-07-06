@@ -12,13 +12,13 @@ program ed_kanemele
   !Bath:
   integer                                       :: Nb
   real(8),allocatable,dimension(:,:)            :: Bath,Bath_prev
-
+  !
   !The local hybridization function:
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Weiss
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Smats,Sreal
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Gmats,Greal
   !
-  !hamiltonian input:
+  !Hamiltonian input:
   complex(8),allocatable,dimension(:,:,:)       :: Hk
   complex(8),allocatable,dimension(:,:)         :: kmHloc
   complex(8),allocatable,dimension(:,:,:,:,:)   :: Hloc
@@ -30,13 +30,18 @@ program ed_kanemele
   real(8),dimension(2)                          :: a1,a2,a3
   real(8),dimension(2)                          :: bklen
   !
-  !variables for the model:
+  !Variables for the model:
   integer                                       :: Nk,Nkpath
   real(8)                                       :: t1,t2,phi,Mh,wmixing
   character(len=32)                             :: finput
   character(len=32)                             :: hkfile
-  logical                                       :: bathxy,neelsym,xkick,ykick,zkick,getbands
   real(8),allocatable,dimension(:)              :: dens
+  !
+  !Flags and options
+  character(len=32)                             :: bathspins
+  logical                                       :: neelsym,xkick,ykick,getbands
+  !
+  !Replica Hamiltonian
   real(8),dimension(:,:),allocatable            :: lambdasym_vector ![Nlat,:]
   complex(8),dimension(:,:,:,:,:),allocatable   :: Hsym_basis
   !
@@ -55,20 +60,33 @@ program ed_kanemele
 
   !Parse additional variables && read Input && read H(k)^2x2
   call parse_cmd_variable(finput,"FINPUT",default='inputKANEMELE.conf')
-  call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in",comment='Hk will be written here')
-  call parse_input_variable(nk,"NK",finput,default=100,comment='Number of kpoints per direction')
-  call parse_input_variable(nkpath,"NKPATH",finput,default=500,comment='Number of kpoints per interval on kpath. Relevant only if GETBANDS=T.')
-  call parse_input_variable(t1,"T1",finput,default=2d0,comment='NN hopping, fixes noninteracting bandwidth')
-  call parse_input_variable(t2,"T2",finput,default=0d0,comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
-  call parse_input_variable(phi,"PHI",finput,default=pi/2d0,comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
-  call parse_input_variable(mh,"MH",finput,default=0d0, comment='On-site staggering, aka Semenoff-Mass term')
-  call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0, comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
-  call parse_input_variable(bathxy,"BATHxy",finput,default=.false.,comment='If T the (replica) bath will be forcefully constrained to ~Sx and ~Sy components')
-  call parse_input_variable(neelsym,"NEELSYM",finput,default=.false.,comment='If T AFM(xy) symmetry is enforced on the self energies at each loop.')
-  call parse_input_variable(xkick,"xKICK",finput,default=.false.,comment='If T the bath spins get an initial AFM(x) distortion.')
-  call parse_input_variable(ykick,"yKICK",finput,default=.false.,comment='If T the bath spins get an initial AFM(y) distortion.')
-  call parse_input_variable(zkick,"zKICK",finput,default=.false.,comment='If T the bath spins get an initial AFM(z) distortion. Not with BATHxy.')
-  call parse_input_variable(getbands,"GETBANDS",finput,default=.false.,comment='If T the noninteracting model is solved and the bandstructure stored')
+  !
+  call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in",&
+         comment='Hk will be written here')
+  call parse_input_variable(nk,"NK",finput,default=100,&
+         comment='Number of kpoints per direction')
+  call parse_input_variable(nkpath,"NKPATH",finput,default=500,&
+         comment='Number of kpoints per interval on kpath. Relevant only if GETBANDS=T.')
+  call parse_input_variable(t1,"T1",finput,default=1d0,&
+         comment='NN hopping, fixes noninteracting bandwidth')
+  call parse_input_variable(t2,"T2",finput,default=0.1d0,&
+         comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
+  call parse_input_variable(phi,"PHI",finput,default=pi/2d0,&
+         comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
+  call parse_input_variable(mh,"MH",finput,default=0d0,&
+         comment='On-site staggering, aka Semenoff-Mass term')
+  call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0,&
+         comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
+  call parse_input_variable(bathspins,"BathSpins",finput,default="x",&
+         comment='x; xy; xz; xyz. Meaning the replica bath will have Sx; Sx,Sy; Sx,Sz; Sx,Sy,Sz components.')
+  call parse_input_variable(neelsym,"NEELSYM",finput,default=.true.,&
+         comment='If T AFM(xy) symmetry is enforced on the self energies at each loop')
+  call parse_input_variable(xkick,"xKICK",finput,default=.true.,&
+         comment='If T the bath spins get an initial AFM(x) distortion')
+  call parse_input_variable(ykick,"yKICK",finput,default=.false.,&
+         comment='If T the bath spins get an initial AFM(y) distortion')
+  call parse_input_variable(getbands,"GETBANDS",finput,default=.false.,&
+         comment='If T the noninteracting model is solved and the bandstructure stored')
   !
   call ed_read_input(trim(finput),comm)
   !
@@ -81,11 +99,13 @@ program ed_kanemele
   call add_ctrl_var(eps,"eps")
 
 
-  !SOME CHECK FOR THIS DRIVER:
+  !SOME PRELIMINARY CHECKS FOR THIS DRIVER:
   if(.not.(bath_type=="replica".AND.ed_mode=='nonsu2'))&
        stop "Wrong setup from input file: AFMxy requires NONSU2-mode and REPLICA-bath"
-  if(BATHxy.AND.zKICK)&
-       stop "Wrong setup from input file: AFM(z) sb-field is not allowed with a xy-only bath"
+  if(BathSpins=="xz".AND.yKICK)&
+       stop "Wrong setup from input file: AFM(y) sb-field is not allowed with a xz-only bath"
+  if(BathSpins=="x".AND.yKICK)&
+       stop "Wrong setup from input file: AFM(y) sb-field is not allowed with a x-only bath"
   if(Norb/=1.OR.Nspin/=2)&
        stop "Wrong setup from input file: Norb=1 AND Nspin=2 is the correct configuration."
   Nlat=2
@@ -131,7 +151,20 @@ program ed_kanemele
 
 
   !SETUP HREPLICA SYMMETRIES: 
-  if(BATHxy)then  !Only ~XY spin components in the bath
+  select case(trim(BathSpins))
+
+   case default
+     stop "BathSpins not in [x; xy; xz; xyz]"
+
+   case("x")  !Only X spin component in the bath
+     allocate(lambdasym_vector(Nlat,2))
+     allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,2))
+     Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
+     Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_x,Nspin,Norb)
+     lambdasym_vector(1,:)=[0d0, 0d0]
+     lambdasym_vector(2,:)=[0d0, 0d0]
+
+   case("xy")  !Only XY spin components in the bath
      allocate(lambdasym_vector(Nlat,3))
      allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
      Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
@@ -139,7 +172,17 @@ program ed_kanemele
      Hsym_basis(:,:,:,:,3)=so2nn_reshape(pauli_sigma_y,Nspin,Norb)
      lambdasym_vector(1,:)=[0d0, 0d0, 0d0]
      lambdasym_vector(2,:)=[0d0, 0d0, 0d0]
-  else           !Full XYZ spin freedom in the bath
+
+   case("xz")  !Only XZ spin components in the bath
+      allocate(lambdasym_vector(Nlat,3))
+      allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
+      Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
+      Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_x,Nspin,Norb)
+      Hsym_basis(:,:,:,:,3)=so2nn_reshape(pauli_sigma_z,Nspin,Norb)
+      lambdasym_vector(1,:)=[0d0, 0d0, 0d0]
+      lambdasym_vector(2,:)=[0d0, 0d0, 0d0]
+
+   case("xyz") !Full XYZ spin freedom in the bath
      allocate(lambdasym_vector(Nlat,4))
      allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,4))
      Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
@@ -148,23 +191,22 @@ program ed_kanemele
      Hsym_basis(:,:,:,:,4)=so2nn_reshape(pauli_sigma_z,Nspin,Norb);
      lambdasym_vector(1,:)=[0d0, 0d0, 0d0, 0d0]
      lambdasym_vector(2,:)=[0d0, 0d0, 0d0, 0d0]
-  endif
+
+  end select
+
+  !SETUP SYMMETRY BREAKING KICKS
   if(xKICK)then
     lambdasym_vector(1,2)= +sb_field
     lambdasym_vector(2,2)= -sb_field
   endif
-  if(yKICK)then
+  if(yKICK)then  !Safe: look at the preliminary checks
    lambdasym_vector(1,3)= +sb_field
    lambdasym_vector(2,3)= -sb_field
-  endif
-  if(zKICK)then
-   lambdasym_vector(1,4)= +sb_field ! Safe since < if(BATHxy.AND.zKICK) stop > at the beginning...
-   lambdasym_vector(2,4)= -sb_field
   endif
 
   !SETUP H_replica
   call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
-  !this is now elevated to R-DMFT: ineq sites (1,2) for the lambdas
+  !this is now elevated to RDMFT: ineq sites (1,2) for the lambdas
   
   !SETUP SOLVER
   Nb=ed_get_bath_dimension(Hsym_basis)
@@ -186,14 +228,14 @@ program ed_kanemele
         call ed_solve(comm,Bath(1,:),Hloc(1,:,:,:,:))
         call ed_get_sigma_matsubara(Smats(1,:,:,:,:,:))
         call ed_get_sigma_realaxis(Sreal(1,:,:,:,:,:))
-        Smats(2,1,1,:,:,:) = Smats(1,1,1,:,:,:)  !S(iw)_{B,up,up} = S(iw)_{A,up,up}
-        Smats(2,2,2,:,:,:) = Smats(1,2,2,:,:,:)  !S(iw)_{B,dw,dw} = S(iw)_{A,dw,dw}
-        Smats(2,1,2,:,:,:) = Smats(1,2,1,:,:,:)  !S(iw)_{B,up,dw} = S(iw)_{A,dw,up}
-        Smats(2,2,1,:,:,:) = Smats(1,1,2,:,:,:)  !S(iw)_{B,dw,up} = S(iw)_{A,up,dw}
-        Sreal(2,1,1,:,:,:) = Sreal(1,1,1,:,:,:)  !S(w)_{B,up,up}  = S(w)_{A,up,up}
-        Sreal(2,2,2,:,:,:) = Sreal(1,2,2,:,:,:)  !S(w)_{B,dw,dw}  = S(w)_{A,dw,dw}
-        Sreal(2,1,2,:,:,:) = Sreal(1,2,1,:,:,:)  !S(w)_{B,up,dw}  = S(w)_{A,dw,up}
-        Sreal(2,2,1,:,:,:) = Sreal(1,1,2,:,:,:)  !S(w)_{B,dw,up}  = S(w)_{A,up,dw}
+        Smats(2,1,1,:,:,:) = Smats(1,1,1,:,:,:)   !S(iw)_{B,up,up} = S(iw)_{A,up,up}
+        Smats(2,2,2,:,:,:) = Smats(1,2,2,:,:,:)   !S(iw)_{B,dw,dw} = S(iw)_{A,dw,dw}
+        Smats(2,1,2,:,:,:) = -Smats(1,1,2,:,:,:)  !S(iw)_{B,up,dw} = -S(iw)_{A,up,dw}
+        Smats(2,2,1,:,:,:) = -Smats(1,2,1,:,:,:)  !S(iw)_{B,dw,up} = -S(iw)_{A,dw,up}
+        Sreal(2,1,1,:,:,:) = Sreal(1,1,1,:,:,:)   !S(w)_{B,up,up}  = S(w)_{A,up,up}
+        Sreal(2,2,2,:,:,:) = Sreal(1,2,2,:,:,:)   !S(w)_{B,dw,dw}  = S(w)_{A,dw,dw}
+        Sreal(2,1,2,:,:,:) = -Sreal(1,1,2,:,:,:)  !S(w)_{B,up,dw}  = -S(w)_{A,up,dw}
+        Sreal(2,2,1,:,:,:) = -Sreal(1,2,1,:,:,:)  !S(w)_{B,dw,up}  = -S(w)_{A,dw,up}
         if(master)write(*,*) "***********************************"
         if(master)write(*,*) "*                                 *"
         if(master)write(*,*) "*  !Enforcing NEEL(xy) symmetry!  *"
@@ -464,7 +506,3 @@ contains
 
 
 end program ed_kanemele
-
-
-
-
