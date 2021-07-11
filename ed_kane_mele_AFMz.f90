@@ -8,36 +8,38 @@ program ed_kanemele
   integer                                       :: iloop,Lk,Nso,Nlso,Nlat,Nineq
   logical                                       :: converged
   integer                                       :: ispin,ilat!,i,j
-
+  !
   !Bath:
   integer                                       :: Nb
   real(8),allocatable,dimension(:,:)            :: Bath,Bath_prev
-
+  !
   !The local hybridization function:
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Weiss
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Smats,Sreal
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Gmats,Greal
-
-  !hamiltonian input:
+  !
+  !Hamiltonian input:
   complex(8),allocatable,dimension(:,:,:)       :: Hk
   complex(8),allocatable,dimension(:,:)         :: kmHloc
   complex(8),allocatable,dimension(:,:,:,:,:)   :: Hloc
-
+  !
   integer,allocatable,dimension(:)              :: ik2ix,ik2iy
   real(8),dimension(2)                          :: e1,e2   !real-space lattice basis
   real(8),dimension(2)                          :: bk1,bk2 !reciprocal space lattice basis
   real(8),dimension(2)                          :: d1,d2,d3
   real(8),dimension(2)                          :: a1,a2,a3
   real(8),dimension(2)                          :: bklen
-
-  !variables for the model:
+  real(8),allocatable,dimension(:)              :: dens
+  !
+  !Variables for the model:
   integer                                       :: Nk,Nkpath
   real(8)                                       :: t1,t2,phi,Mh,wmixing
   character(len=32)                             :: finput
   character(len=32)                             :: hkfile
+  !
+  !Flags and options
   logical                                       :: spinsym,neelsym,afmkick,getbands
-  real(8),allocatable,dimension(:)              :: dens
-
+  !
   !MPI
   integer                                     :: comm,rank
   logical                                     :: master
@@ -53,14 +55,14 @@ program ed_kanemele
   call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in",comment='Hk will be written here')
   call parse_input_variable(nk,"NK",finput,default=100,comment='Number of kpoints per direction')
   call parse_input_variable(nkpath,"NKPATH",finput,default=500,comment='Number of kpoints per interval on kpath. Relevant only if GETBANDS=T.')
-  call parse_input_variable(t1,"T1",finput,default=2d0,comment='NN hopping, fixes noninteracting bandwidth')
+  call parse_input_variable(t1,"T1",finput,default=1d0,comment='NN hopping, fixes noninteracting bandwidth')
   call parse_input_variable(t2,"T2",finput,default=0d0,comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
   call parse_input_variable(phi,"PHI",finput,default=pi/2d0,comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
   call parse_input_variable(mh,"MH",finput,default=0d0, comment='On-site staggering, aka Semenoff-Mass term')
-  call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0, comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
-  call parse_input_variable(spinsym,"SPINSYM",finput,default=.true.,comment='T fits just one Sz component and copies on the other; F fits both independently.')
-  call parse_input_variable(neelsym,"NEELSYM",finput,default=.false.,comment='If T AFM(z) symmetry is enforced programmatically at each loop. Not with SPINSYM.')
-  call parse_input_variable(afmkick,"AFMKICK",finput,default=.false.,comment='If T the bath spins get an initial AFM(z) distortion. Not with SPINSYM.')
+  call parse_input_variable(wmixing,"WMIXING",finput,default=0.3d0, comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
+  call parse_input_variable(spinsym,"SPINSYM",finput,default=.false.,comment='T fits just one Sz component and copies on the other; F fits both independently.')
+  call parse_input_variable(neelsym,"NEELSYM",finput,default=.true.,comment='If T AFM(z) symmetry is enforced programmatically at each loop. Not with SPINSYM.')
+  call parse_input_variable(afmkick,"AFMKICK",finput,default=.true.,comment='If T the bath spins get an initial AFM(z) distortion. Not with SPINSYM.')
   call parse_input_variable(getbands,"GETBANDS",finput,default=.false.,comment='If T the noninteracting model is solved and the bandstructure stored')
   !
   call ed_read_input(trim(finput),comm)
@@ -449,7 +451,3 @@ contains
 
 
 end program ed_kanemele
-
-
-
-
