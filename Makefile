@@ -3,7 +3,7 @@
 #$ COMPILER: supported compilers are ifort, gnu >v4.7 or use mpif90
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default if $HOME/.bin in the PATH)
-EXE=ed_bhz_2d
+EXE=ss_DFT
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
@@ -18,8 +18,8 @@ endef
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-GLOB_INC:=$(shell pkg-config --cflags dmft_ed dmft_tools scifor)
-GLOB_LIB:=$(shell pkg-config --libs dmft_ed dmft_tools scifor)
+GLOB_INC:=$(shell pkg-config --cflags dmft_ed slave_spins dmft_tools scifor)
+GLOB_LIB:=$(shell pkg-config --libs dmft_ed slave_spins dmft_tools scifor)
 
 ifeq ($(PLAT),intel)
 FFLAG=-O2 -ftz

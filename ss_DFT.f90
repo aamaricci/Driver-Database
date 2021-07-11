@@ -18,7 +18,7 @@ program ss_DFT
   character(len=60)                       :: w90file,InputFile,latfile,kpathfile,ineqfile,hkfile,OrderFile
   character(len=40),allocatable           :: points_name(:)
   real(8)                                 :: ef
-  logical                                 :: FSflag,EFflag,Spinor,Bandsflag,zHkflag
+  logical                                 :: FSflag,Spinor,Bandsflag,zHkflag
   logical                                 :: master=.true.,bool
   logical                                 :: bool_hk
   logical                                 :: bool_lat
@@ -42,12 +42,10 @@ program ss_DFT
   call parse_input_variable(kpathfile,"kpathfile",InputFile,default="kpath.conf")
   call parse_input_variable(ineqfile,"ineqfile",InputFile,default="ineq.conf")
   call parse_input_variable(orderfile,"Orderfile",InputFile,default="order.conf")
-  call parse_input_variable(Nin_w90,"Nin_w90",InputFile,default=[Nspin,Norb,Nlat])
   call parse_input_variable(Spinor,"Spinor",InputFile,default=.false.)
   call parse_input_variable(Bandsflag,"Bandsflag",InputFile,default=.true.)
-  call parse_input_variable(zHkflag,"zHkflag",InputFile,default=.true.)
+  call parse_input_variable(zHkflag,"zHkflag",InputFile,default=.false.)
   call parse_input_variable(FSflag,"FSflag",InputFile,default=.false.)
-  call parse_input_variable(EFflag,"EFflag",InputFile,default=.false.)
   call parse_input_variable(Nkvec,"NKVEC",InputFile,default=[10,10,10])
   call parse_input_variable(nkpath,"NKPATH",InputFile,default=500)
   call ss_read_input(reg(InputFile))
@@ -73,9 +71,11 @@ program ss_DFT
   !Get/Set Wannier ordering:
   if(bool_order)then
      open(free_unit(unit),file=reg(orderfile))
+     read(unit,*)Nin_w90(1),Nin_w90(2),Nin_w90(3)
      read(unit,*)OrderIn_w90(1),OrderIn_w90(2),OrderIn_w90(3)
      close(unit)
   else
+     Nin_w90    =[Nspin,Norb,Nlat]
      OrderIn_w90=[character(len=5)::"Nspin","Norb","Nlat"]
   endif
 
@@ -149,6 +149,7 @@ program ss_DFT
      Nktot=product(Nkvec)
      allocate(Hk(Nlso,Nlso,Nktot))
      call start_timer
+     !Build H(k) and re-order it to the default DMFT_tools order:
      call TB_build_model(Hk,Nlso,Nkvec)
      Hk = TB_reshape_array(Hk,Nin=Nin_w90,OrderIn=OrderIn_w90,&
           OrderOut=[character(len=5)::"Norb","Nspin","Nlat"])
@@ -167,16 +168,18 @@ program ss_DFT
 
 
   !########################################
-  !SOLVE SS:
+  !SOLVE SS: explicitly set User Order, so SS re-organize H(k) according to its needs.
+  !note: we could have either i) re-order H(k) directly in SS order (it requires the user
+  !to know it) or ii) reorder H(k) externally using again TB_reshape_array.
+  !SS order is: Norb,Nlat,Nspin
   call start_timer
-  call ss_solve(Hk,ineq_sites=ineq_sites)
+  call ss_solve(Hk,ineq_sites=ineq_sites,UserOrder=[character(len=5)::"Norb","Nspin","Nlat"])
   call stop_timer("SS SOLUTION")
-  !Retrieve Zeta and ReSigma(0)=lambda0-lambda
   call ss_get_zeta(zeta)
   call ss_get_Self(self)
-  call save_array("renorm.save",[zeta,self])
   call TB_w90_Zeta(zeta)
   call TB_w90_Self(diag(self))
+  if(master)call save_array("renorm.save",[zeta,self])
   !########################################
 
 
