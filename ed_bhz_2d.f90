@@ -5,7 +5,7 @@ program ed_bhz
   USE MPI
   USE SF_MPI
   implicit none
-  integer                                     :: iloop,Lk,Nso
+  integer                                     :: iloop,Lk,Nso,Lakw
   logical                                     :: converged
   !Bath:
   integer                                     :: Nb,iorb,jorb,ispin,print_mode
@@ -22,7 +22,7 @@ program ed_bhz
   integer,allocatable                         :: ik2ix(:),ik2iy(:)
   !variables for the model:
   integer                                     :: Nk,Nkpath
-  real(8)                                     :: mh,lambda,wmixing,akrange,rh
+  real(8)                                     :: mh,lambda,wmixing,akrange
   character(len=30)                           :: Params
   character(len=16)                           :: finput
   character(len=32)                           :: hkfile
@@ -37,7 +37,7 @@ program ed_bhz
   complex(8),dimension(:,:,:,:,:),allocatable :: Hsym_basis
   !MPI Vars:
   integer                                     :: irank,comm,rank,size2,ierr
-  logical                                     :: master,getbands
+  logical                                     :: master,getbands,getakw
 
   call init_MPI()
   comm = MPI_COMM_WORLD
@@ -61,6 +61,9 @@ program ed_bhz
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.d0)
   call parse_input_variable(usez,"USEZ",finput,default=.false.)
   call parse_input_variable(getbands,"GETBANDS",finput,default=.false.)
+  call parse_input_variable(getakw,"GETAKW",finput,default=.false.)
+  call parse_input_variable(Lakw,"LAKW",finput,default=250)
+  call parse_input_variable(akrange,"AKRANGE",finput,default=5d0)
   !
   call ed_read_input(trim(finput),comm)
   !
@@ -117,6 +120,14 @@ program ed_bhz
      stop
   endif
 
+
+  if(getakw)then
+     call read_array("Sreal",Sreal)
+     call get_Akw(Lakw,Akrange)
+     call finalize_MPI()
+     stop
+  endif
+  
   !Setup solver
   if(bath_type=="replica")then
      select case(trim(Params))
@@ -398,6 +409,83 @@ contains
 
 
 
+!---------------------------------------------------------------------
+  !PURPOSE: GET A(k,w)
+  !---------------------------------------------------------------------
+  subroutine get_Akw(Lw,aw)
+    integer                                       :: Lw
+    real(8)                                       :: Aw
+    integer                                       :: ik
+    integer                                       :: iorb,jorb
+    integer                                       :: ispin,jspin
+    complex(8),dimension(:,:,:,:,:),allocatable   :: Sreal_
+    real(8),dimension(:,:),allocatable            :: Akreal
+    complex(8),dimension(:,:,:,:,:,:),allocatable :: Gkreal
+    real(8),allocatable                           :: wr_(:),wr(:),Kgrid(:)
+    real(8),dimension(:,:),allocatable            :: Kpath
+    character(len=30)                             :: suffix
+    !
+    !
+    !
+    call set_SigmaBHZ()
+    !
+    if(master)print*,"Build A(k,w) using Sigma(w) interpolated"
+    allocate(wr(Lreal),wr_(Lw))
+    wr  = linspace(wini,wfin,Lreal)!In
+    wr_ = linspace(-aw,aw,Lw)      !Out
+    !
+    wini=-aw
+    wfin= aw
+    call add_ctrl_var(wini,'wini')
+    call add_ctrl_var(wfin,'wfin')
+    !
+    allocate(kpath(4,3))
+    Lk=(size(kpath,1)-1)*Nkpath
+    kpath(1,:)=kpoint_gamma
+    kpath(2,:)=kpoint_x1
+    kpath(3,:)=kpoint_m1
+    kpath(4,:)=kpoint_gamma
+
+    if(allocated(Hk))deallocate(Hk)
+
+    allocate(Hk(Nso,Nso,Lk));Hk=zero
+    allocate(kgrid(Lk) )
+    !
+    call TB_build_kgrid(kpath,Nkpath,kgrid)
+    call TB_build_model(Hk,hk_bhz,Nso,kpath,Nkpath)
+    !
+    !
+    allocate(Sreal_(Nspin,Nspin,Norb,Norb,Lw));Sreal_=zero
+    do ispin=1,Nspin
+       do jspin=1,Nspin
+          do iorb=1,Norb
+             do jorb=1,Norb
+                call cubic_spline(wr,Sreal(ispin,jspin,iorb,jorb,:),wr_,Sreal_(ispin,jspin,iorb,jorb,:))
+             enddo
+          enddo
+       enddo
+    enddo
+    call dmft_print_gf_realaxis(Sreal_,"Sreal_",iprint=print_mode)
+    !
+    allocate(Gkreal(Lk,Nspin,Nspin,Norb,Norb,Lw));Gkreal=zero        
+    call start_timer
+    do ik=1,Lk
+       call dmft_gk_realaxis(Hk(:,:,ik),Gkreal(ik,:,:,:,:,:),Sreal_)
+       call eta(ik,Lk)
+    enddo
+    call stop_timer
+    !
+
+    allocate(Akreal(Lk,Lw));Akreal=zero
+    do ispin=1,Nspin
+       do iorb=1,Norb
+          Akreal = Akreal - dimag(Gkreal(:,ispin,ispin,iorb,iorb,:))/pi/Nso
+       enddo
+    enddo
+
+    call splot3d("Akw_real_nso.dat",kgrid,wr_,Akreal) 
+
+  end subroutine get_Akw
 
 
 

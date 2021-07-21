@@ -11,14 +11,14 @@ program ss_DFT
   integer                                 :: Nktot,Nkpath,Nkvec(3),Npts,Nlso
   integer                                 :: i,j,k,ik,ilat,iorb,jorb,io,ispin
   real(8),dimension(3)                    :: e1,e2,e3
-  real(8),dimension(:,:),allocatable      :: kpath
+  real(8),dimension(:,:),allocatable      :: kpath,kgrid
   complex(8),dimension(:,:,:),allocatable :: Hk
   complex(8),dimension(:,:),allocatable   :: Hloc
   real(8),allocatable                     :: Dens(:),Zeta(:), Self(:),Tmp(:)
   character(len=60)                       :: w90file,InputFile,latfile,kpathfile,ineqfile,hkfile,OrderFile
   character(len=40),allocatable           :: points_name(:)
   real(8)                                 :: ef
-  logical                                 :: FSflag,EFflag,Spinor,Bandsflag,zHkflag
+  logical                                 :: FSflag,Spinor,Bandsflag,zHkflag
   logical                                 :: master=.true.,bool
   logical                                 :: bool_hk
   logical                                 :: bool_lat
@@ -42,12 +42,10 @@ program ss_DFT
   call parse_input_variable(kpathfile,"kpathfile",InputFile,default="kpath.conf")
   call parse_input_variable(ineqfile,"ineqfile",InputFile,default="ineq.conf")
   call parse_input_variable(orderfile,"Orderfile",InputFile,default="order.conf")
-  call parse_input_variable(Nin_w90,"Nin_w90",InputFile,default=[Nspin,Norb,Nlat])
   call parse_input_variable(Spinor,"Spinor",InputFile,default=.false.)
   call parse_input_variable(Bandsflag,"Bandsflag",InputFile,default=.true.)
-  call parse_input_variable(zHkflag,"zHkflag",InputFile,default=.true.)
+  call parse_input_variable(zHkflag,"zHkflag",InputFile,default=.false.)
   call parse_input_variable(FSflag,"FSflag",InputFile,default=.false.)
-  call parse_input_variable(EFflag,"EFflag",InputFile,default=.false.)
   call parse_input_variable(Nkvec,"NKVEC",InputFile,default=[10,10,10])
   call parse_input_variable(nkpath,"NKPATH",InputFile,default=500)
   call ss_read_input(reg(InputFile))
@@ -59,6 +57,7 @@ program ss_DFT
   call add_ctrl_var(eps,"eps")
 
   Nlso = Nlat*Nspin*Norb
+  Nktot=product(Nkvec)
 
   allocate(Zeta(Nlso))
   allocate(Self(Nlso))
@@ -73,9 +72,12 @@ program ss_DFT
   !Get/Set Wannier ordering:
   if(bool_order)then
      open(free_unit(unit),file=reg(orderfile))
+     read(unit,*)Nin_w90(1),Nin_w90(2),Nin_w90(3)
      read(unit,*)OrderIn_w90(1),OrderIn_w90(2),OrderIn_w90(3)
      close(unit)
   else
+     write(*,"(A)")"Using default order for W90 input: [Nspin, Norb, Nlat]"
+     Nin_w90    =[Nspin,Norb,Nlat]
      OrderIn_w90=[character(len=5)::"Nspin","Norb","Nlat"]
   endif
 
@@ -90,6 +92,7 @@ program ss_DFT
      enddo
      close(unit)
   else
+     write(*,"(A)")"Using default path for 3d BZ: [M,R,Gm,X,M,Gm,Z,A,R]"
      Npts = 9
      allocate(kpath(Npts,3),points_name(Npts))
      kpath(1,:)=[0.5d0,0.5d0,0d0]
@@ -106,7 +109,7 @@ program ss_DFT
 
 
   !Setup inequivalent sites in the unit cell
-  allocate(ineq_sites(Nlat));ineq_sites=1
+  allocate(ineq_sites(Nlat))
   if(bool_ineq)then
      open(free_unit(unit),file=reg(ineqfile))
      do i=1,Nlat
@@ -114,6 +117,9 @@ program ss_DFT
         write(*,"(A,I5,A,I5)")"Site",i,"corresponds to ",ineq_sites(i)
      enddo
      close(unit)
+  else
+     write(*,"(A)")"Using default Ineq_sites list: all equivalent to 1"
+     ineq_sites = 1
   endif
 
 
@@ -125,6 +131,7 @@ program ss_DFT
      read(unit,*)e3
      close(unit)
   else
+     write(*,"(A)")"Using default lattice basis: ortho-normal"
      e1 = [1d0,0d0,0d0]
      e2 = [0d0,1d0,0d0]
      e3 = [0d0,0d0,1d0]
@@ -137,22 +144,21 @@ program ss_DFT
   call start_timer
   call TB_w90_setup(reg(w90file),nlat=Nlat,norb=Norb,nspin=Nspin,Spinor=spinor,verbose=.true.)
   call stop_timer("TB_w90_setup")
-
   if(bool_hk)then
-     call TB_read_hk(Hk,reg(hkfile),Nkvec)
-     if(size(Hk,1)/=Nlat*Nspin*Norb)stop "ss_DFT error: wrong size in Hk as read from file"
+     call TB_read_hk(Hk,reg(hkfile),Nlat,Nspin,Norb,Nkvec,kgrid)
+     call assert_shape(Hk,[Nlso,Nlso,product(Nkvec)])
   else
      call start_timer  
      call TB_w90_FermiLevel(Nkvec,filling,Ef)
      call stop_timer("TB_w90_FermiLevel")
      !
-     Nktot=product(Nkvec)
      allocate(Hk(Nlso,Nlso,Nktot))
      call start_timer
+     !Build H(k) and re-order it to the default DMFT_tools order:
      call TB_build_model(Hk,Nlso,Nkvec)
      Hk = TB_reshape_array(Hk,Nin=Nin_w90,OrderIn=OrderIn_w90,&
           OrderOut=[character(len=5)::"Norb","Nspin","Nlat"])
-     call TB_write_hk(reg(hkfile),Nkvec)
+     call TB_write_hk(Hk,reg(hkfile),Nlat,Nspin,Norb,Nkvec)
      call stop_timer("TB_build_model")
   endif
 
@@ -167,16 +173,18 @@ program ss_DFT
 
 
   !########################################
-  !SOLVE SS:
+  !SOLVE SS: explicitly set User Order, so SS re-organize H(k) according to its needs.
+  !note: we could have either i) re-order H(k) directly in SS order (it requires the user
+  !to know it) or ii) reorder H(k) externally using again TB_reshape_array.
+  !SS order is: Norb,Nlat,Nspin
   call start_timer
-  call ss_solve(Hk,ineq_sites=ineq_sites)
+  call ss_solve(Hk,ineq_sites=ineq_sites,UserOrder=[character(len=5)::"Norb","Nspin","Nlat"])
   call stop_timer("SS SOLUTION")
-  !Retrieve Zeta and ReSigma(0)=lambda0-lambda
   call ss_get_zeta(zeta)
   call ss_get_Self(self)
-  call save_array("renorm.save",[zeta,self])
   call TB_w90_Zeta(zeta)
   call TB_w90_Self(diag(self))
+  if(master)call save_array("renorm.save",[zeta,self])
   !########################################
 
 
