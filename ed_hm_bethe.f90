@@ -4,7 +4,7 @@ program lancED
   USE DMFT_TOOLS
   USE MPI
   implicit none
-  integer                                     :: iloop,Nb,Le,Nso,iorb
+  integer                                     :: iloop,Nb,Le,Nso,iorb,Lf
   logical                                     :: converged
   real(8),dimension(5)                        :: Wbethe,Dbethe
   !Bath:
@@ -16,16 +16,16 @@ program lancED
   real(8),dimension(:),allocatable            :: H0
   real(8),dimension(:),allocatable            :: de,dens
   !
-  real(8),dimension(:),allocatable            :: Wband
+  real(8),dimension(:),allocatable            :: Wband,wfreq
   !
-  complex(8),allocatable,dimension(:,:,:,:,:) :: Weiss,Smats,Sreal,Gmats,Greal,Weiss_
-  complex(8),allocatable,dimension(:) :: Gtest
+  complex(8),allocatable,dimension(:,:,:,:,:) :: Weiss,Smats,Sreal,Gmats,Greal,Weiss_,Greb,Sreb
+  complex(8),allocatable,dimension(:)         :: Gtest
   character(len=16)                           :: finput
   real(8)                                     :: wmixing
   !
   integer                                     :: comm,rank
   logical                                     :: master
-  logical :: betheSC,wGimp,mixG0,symOrbs
+  logical                                     :: betheSC,wGimp,mixG0,symOrbs,reGF
 
   call init_MPI()
   comm = MPI_COMM_WORLD
@@ -43,6 +43,7 @@ program lancED
   call parse_input_variable(wGimp,"wGimp",finput,default=.false.)
   call parse_input_variable(mixG0,"mixG0",finput,default=.false.)
   call parse_input_variable(symOrbs,"symOrbs",finput,default=.false.)
+  call parse_input_variable(reGF,"REGF",finput,default=.false.)
   !
   call ed_read_input(trim(finput),comm)
 
@@ -54,7 +55,6 @@ program lancED
   call add_ctrl_var(wini,'wini')
   call add_ctrl_var(wfin,'wfin')
   call add_ctrl_var(eps,"eps")
-
 
   if(Nspin/=1.OR.Norb>5)stop "Wrong setup from input file: Nspin=1 OR Norb>5"
   Nso=Nspin*Norb
@@ -92,7 +92,15 @@ program lancED
   Nb=ed_get_bath_dimension()
   allocate(bath(Nb))
   allocate(bath_(Nb))
-  call ed_init_solver(comm,bath,Hloc)
+  call ed_init_solver(comm,bath)
+
+
+  !REBUILD impurity GF and SE
+  ! if(reGF)then
+  !    call ed_rebuild_gf(comm,Hloc)     
+  !    call finalize_MPI()
+  !    stop
+  ! end if
 
 
   !DMFT loop
@@ -102,14 +110,15 @@ program lancED
      call start_loop(iloop,nloop,"DMFT-loop")
      !
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-     call ed_solve(comm,bath)
+     call ed_solve(comm,bath,Hloc)
      call ed_get_sigma_matsubara(Smats)
      call ed_get_sigma_realaxis(Sreal)
      call ed_get_dens(dens)
 
      ! compute the local gf:
      call dmft_gloc_matsubara(Ebands,Dbands,H0,Gmats,Smats)
-     call dmft_gloc_realaxis(Ebands,Dbands,H0,Greal,Sreal)
+     call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
+
      !
      !Get the Weiss field/Delta function to be fitted
      if(.not.betheSC)then
@@ -118,9 +127,6 @@ program lancED
         if(wGimp)call ed_get_gimp_matsubara(Gmats)
         call dmft_self_consistency(Gmats,Weiss,Hloc,SCtype=cg_scheme,wbands=Wband)
      endif
-
-     call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
-     call dmft_print_gf_realaxis(Greal,"Greal",iprint=1)
      call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=1)
      !
      !
@@ -156,10 +162,40 @@ program lancED
   enddo
 
 
+  call dmft_gloc_realaxis(Ebands,Dbands,H0,Greal,Sreal)
+  call dmft_print_gf_realaxis(Greal,"Greal",iprint=1)
+
   call dmft_kinetic_energy(Ebands,Dbands,H0,Smats(1,1,:,:,:))
 
-  call finalize_MPI()
 
+  ! !Rebuild required Gimp or Self-energy. Use latest dmft_print_function to print.
+  ! !Matsubara example:
+  ! beta=beta/10d0 !change Mats freq mesh
+  ! Lf  = 4096     !use arbitray freq. number
+  ! allocate(wfreq(Lf))
+  ! allocate(Greb(Nspin,Nspin,Norb,Norb,Lf)) 
+  ! allocate(Sreb(Nspin,Nspin,Norb,Norb,Lf))
+  ! wfreq=pi/beta*(2*arange(1,Lf)-1) !Matsubara freq.
+  ! !call ed_get_gimp/sigma, specifify Imaginary Freq. == Matsubara
+  ! call ed_get_gimp(dcmplx(0d0,wfreq),Hloc,Greb)
+  ! call ed_get_sigma(dcmplx(0d0,wfreq),Hloc,Sreb)
+  ! call dmft_print_function(Greb,"reGimp",iprint=1,axis="mats",zeta=wfreq)
+  ! call dmft_print_function(Sreb,"reSigma",iprint=1,axis="mats",zeta=wfreq)
+  ! !
+  ! deallocate(wfreq,Greb,Sreb)
+  ! !
+  ! !Realaxis example  
+  ! Lf = 10000                    !arbitrary number of freq.
+  ! eps= 0.0099314d0              !arbitary imaginary shift
+  ! allocate(wfreq(Lf))
+  ! allocate(Greb(Nspin,Nspin,Norb,Norb,Lf)) 
+  ! allocate(Sreb(Nspin,Nspin,Norb,Norb,Lf))
+  ! wfreq=linspace(-10d0,pi2,Lf)  !arbitrary domain
+  ! !call ed_get_gimp/sigma, specifify Complex Freq. == realaxis+xi*eps
+  ! call ed_get_gimp(dcmplx(wfreq,eps),Hloc,Greb)
+  ! call ed_get_sigma(dcmplx(wfreq,eps),Hloc,Sreb)
+  ! call dmft_print_function(Greb,"reGimp",iprint=1,axis="real",zeta=wfreq)
+  ! call dmft_print_function(Sreb,"reSigma",iprint=1,axis="real",zeta=wfreq)
 
 end program lancED
 
