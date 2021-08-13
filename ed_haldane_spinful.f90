@@ -108,7 +108,7 @@ program ed_haldane
   Nb=ed_get_bath_dimension()
   allocate(Bath(Nlat,Nb))
   allocate(Bath_prev(Nlat,Nb))
-  call ed_init_solver(comm,Bath,Hloc)
+  call ed_init_solver(comm,Bath)
   if(afmkick.AND.spinsym)stop "Wrong setup from input file: AFMKICK=T not with SPINSYM=T"
   if((.not.spinsym).and.afmkick)then
      if(master)write(*,*) "**********************************************"

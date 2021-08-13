@@ -38,32 +38,50 @@ program ed_kanemele
   character(len=32)                             :: hkfile
   !
   !Flags and options
-  logical                                       :: spinsym,neelsym,afmkick,getbands
+  logical                                       :: neelsym,afmkick,getbands
+  !
+  !Replica Hamiltonian
+  real(8),dimension(:,:),allocatable            :: lambdasym_vector ![Nlat,:]
+  complex(8),dimension(:,:,:,:,:),allocatable   :: Hsym_basis
   !
   !MPI
   integer                                     :: comm,rank
   logical                                     :: master
 
+
+  !MPI INIT:
   call init_MPI()
   comm = MPI_COMM_WORLD
   call StartMsg_MPI(comm)
   rank = get_Rank_MPI(comm)
   master = get_Master_MPI(comm)
 
+
   !Parse additional variables && read Input && read H(k)^2x2
   call parse_cmd_variable(finput,"FINPUT",default='inputKANEMELE.conf')
-  call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in",comment='Hk will be written here')
-  call parse_input_variable(nk,"NK",finput,default=100,comment='Number of kpoints per direction')
-  call parse_input_variable(nkpath,"NKPATH",finput,default=500,comment='Number of kpoints per interval on kpath. Relevant only if GETBANDS=T.')
-  call parse_input_variable(t1,"T1",finput,default=1d0,comment='NN hopping, fixes noninteracting bandwidth')
-  call parse_input_variable(t2,"T2",finput,default=0d0,comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
-  call parse_input_variable(phi,"PHI",finput,default=pi/2d0,comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
-  call parse_input_variable(mh,"MH",finput,default=0d0, comment='On-site staggering, aka Semenoff-Mass term')
-  call parse_input_variable(wmixing,"WMIXING",finput,default=0.3d0, comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
-  call parse_input_variable(spinsym,"SPINSYM",finput,default=.false.,comment='T fits just one Sz component and copies on the other; F fits both independently.')
-  call parse_input_variable(neelsym,"NEELSYM",finput,default=.true.,comment='If T AFM(z) symmetry is enforced programmatically at each loop. Not with SPINSYM.')
-  call parse_input_variable(afmkick,"AFMKICK",finput,default=.true.,comment='If T the bath spins get an initial AFM(z) distortion. Not with SPINSYM.')
-  call parse_input_variable(getbands,"GETBANDS",finput,default=.false.,comment='If T the noninteracting model is solved and the bandstructure stored')
+  !
+  call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in",&
+         comment='Hk will be written here')
+  call parse_input_variable(nk,"NK",finput,default=100,&
+         comment='Number of kpoints per direction')
+  call parse_input_variable(nkpath,"NKPATH",finput,default=500,&
+         comment='Number of kpoints per interval on kpath. Relevant only if GETBANDS=T.')
+  call parse_input_variable(t1,"T1",finput,default=1d0,&
+         comment='NN hopping, fixes noninteracting bandwidth')
+  call parse_input_variable(t2,"T2",finput,default=0.1d0,&
+         comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
+  call parse_input_variable(phi,"PHI",finput,default=pi/2d0,&
+         comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
+  call parse_input_variable(mh,"MH",finput,default=0d0,&
+         comment='On-site staggering, aka Semenoff-Mass term')
+  call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0,&
+         comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
+  call parse_input_variable(neelsym,"NEELSYM",finput,default=.true.,&
+         comment='If T AFM(z) symmetry is enforced on the self energies at each loop')
+  call parse_input_variable(afmkick,"AFMKICK",finput,default=.true.,&
+         comment='If T the bath spins get an initial AFM(z) distortion')
+  call parse_input_variable(getbands,"GETBANDS",finput,default=.false.,&
+         comment='If T the noninteracting model is solved and the bandstructure stored')
   !
   call ed_read_input(trim(finput),comm)
   !
@@ -76,19 +94,24 @@ program ed_kanemele
   call add_ctrl_var(eps,"eps")
 
 
-  if(neelsym.AND.spinsym)stop "Wrong setup from input file: NEELSYM=T not with SPINSYM=T"
-
-  if(afmkick.AND.spinsym)stop "Wrong setup from input file: AFMKICK=T not with SPINSYM=T"
-
-  if(bath_type/="normal")stop "Wrong setup from input file: Normal BATH required here"
-
-  if(ed_mode/="normal")stop "Wrong setup from input file: Normal MODE required here"
-
-  if(Norb/=1.OR.Nspin/=2)stop "Wrong setup from input file: Norb=1 AND Nspin=2 is the correct configuration for the model."
+  !SOME PRELIMINARY CHECKS FOR THIS DRIVER:
+  !
+  if(ed_mode=="superc")stop "Wrong setup from input file: NORMAL or NONSU2 ed-mode here"
+  !
+  if(bath_type=="hybrid")stop "Wrong setup from input file: NORMAL or REPLICA bath here"
+  !
+  if(bath_type=="replica".AND.ed_mode=='normal')&
+       stop "Wrong setup from input file: NORMAL-mode requires NORMAL-bath"
+  !
+  if(bath_type=="normal".AND.ed_mode=='nonsu2')&
+       stop "Wrong setup from input file: NONSU2-mode requires REPLICA-bath"
+  !
+  if(Norb/=1.OR.Nspin/=2)stop "Wrong setup from input file: Norb=1 AND Nspin=2 is the correct configuration for the model"
   Nlat=2
   Nso=Nspin*Norb
   Nlso=Nlat*Nso                 !=4 = 2(ineq sites)*2(spin)*1(orb)
 
+  !SETUP LATTICE AND H(k)
   !Lattice basis (a=1; a0=sqrt3*a) is:
   !e_1 = a0 [ sqrt3/2 , 1/2 ] = 3/2a[1, 1/sqrt3]
   !e_2 = a0 [ sqrt3/2 ,-1/2 ] = 3/2a[1,-1/sqrt3]
@@ -118,7 +141,7 @@ program ed_kanemele
   Hloc = lso2nnn_reshape(kmHloc,Nlat,Nspin,Norb)
 
 
-  !Allocate Weiss Field:
+  !ALLOCATE LOCAL FIELDS:
   allocate(Weiss(Nlat,Nspin,Nspin,Norb,Norb,Lmats));Weiss=zero
   allocate(Smats(Nlat,Nspin,Nspin,Norb,Norb,Lmats));Smats=zero
   allocate(Gmats(Nlat,Nspin,Nspin,Norb,Norb,Lmats));Gmats=zero
@@ -126,23 +149,48 @@ program ed_kanemele
   allocate(Greal(Nlat,Nspin,Nspin,Norb,Norb,Lreal));Greal=zero
 
 
-  !Setup solver
-  if(bath_type/="normal")stop "Normal BATH required here"
-  !Usual bath initialization (no symmetry-basis for the Hloc, matrix explicitly given)
-  Nb=ed_get_bath_dimension()
-  allocate(Bath(Nlat,Nb))
-  allocate(Bath_prev(Nlat,Nb))
-  call ed_init_solver(comm,Bath)
-  !AFM initial 'kick', if requested in the inputfile
-  if(afmkick)then
-      do ilat=1,Nlat
-         call ed_break_symmetry_bath(Bath(ilat,:),sb_field,(-1d0)**(ilat+1))
-      enddo
-      if(master)write(*,*) "*************************************************"
-      if(master)write(*,*) "*                                               *"
-      if(master)write(*,*) "*  !Applying an AFMz kick to the initial bath!  *"
-      if(master)write(*,*) "*                                               *"
-      if(master)write(*,*) "*************************************************"
+  !SETUP SOLVER
+  if(bath_type=="replica")then
+    !SETUP REPLICA BATH
+      !setup symmetry-basis: 
+      allocate(lambdasym_vector(Nlat,2))
+      allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,2))
+      Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
+      Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_z,Nspin,Norb)
+      lambdasym_vector(1,:)=[0d0, 0d0]
+      lambdasym_vector(2,:)=[0d0, 0d0]
+      !setup symmetry-breaking AFM kick, if requested in the inputfile
+      if(afmkick)then
+        lambdasym_vector(1,2)= +sb_field
+        lambdasym_vector(2,2)= -sb_field
+      endif
+      !setup H_replica
+      call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
+      !this is now elevated to RDMFT: ineq sites (1,2) for the lambdas
+      Nb=ed_get_bath_dimension(Hsym_basis)
+      allocate(Bath(Nlat,Nb))
+      allocate(Bath_prev(Nlat,Nb))
+      call ed_init_solver(comm,Bath)
+  elseif(bath_type=="normal")then
+    !SETUP NORMAL BATH
+      !Usual bath initialization (no H_replica)
+      Nb=ed_get_bath_dimension()
+      allocate(Bath(Nlat,Nb))
+      allocate(Bath_prev(Nlat,Nb))
+      call ed_init_solver(comm,Bath)
+      !setup symmetry-breaking AFM kick, if requested in the inputfile
+      if(afmkick)then
+          do ilat=1,Nlat
+             call ed_break_symmetry_bath(Bath(ilat,:),sb_field,(-1d0)**(ilat+1))
+          enddo
+      endif
+  endif
+  if(afmkick)then !For the log file
+    if(master)write(*,*) "*************************************************"
+    if(master)write(*,*) "*                                               *"
+    if(master)write(*,*) "*  !Applying an AFMz kick to the initial bath!  *"
+    if(master)write(*,*) "*                                               *"
+    if(master)write(*,*) "*************************************************"
   endif
 
 
@@ -155,17 +203,8 @@ program ed_kanemele
      call start_loop(iloop,nloop,"DMFT-loop")
      !
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-     if(.not.neelsym)then
-        !Solve separately the two atoms:
-        do ilat=1,Nlat
-         call ed_set_suffix(ilat) !this is needed to print different files for different sites
-           call ed_solve(comm,Bath(ilat,:),Hloc(ilat,:,:,:,:))!Hloc is mandatory here.
-           call ed_get_sigma_matsubara(Smats(ilat,:,:,:,:,:))
-           call ed_get_sigma_realaxis(Sreal(ilat,:,:,:,:,:))
-        enddo
-      call ed_reset_suffix()     !look at ed_set_suffix...
-     else
-        !Solve just atom A and get atom B by Neel symmetry
+     if(neelsym)then
+      !solve just one sublattice and get the other by Neel symmetry (xy version)
         call ed_solve(comm,Bath(1,:),Hloc(1,:,:,:,:))
         call ed_get_sigma_matsubara(Smats(1,:,:,:,:,:))
         call ed_get_sigma_realaxis(Sreal(1,:,:,:,:,:))
@@ -173,11 +212,20 @@ program ed_kanemele
         Smats(2,1,1,:,:,:) = Smats(1,2,2,:,:,:) !S(iw)_{B,up,up} = S(iw)_{A,dw,dw}
         Sreal(2,2,2,:,:,:) = Sreal(1,1,1,:,:,:) !S(w)_{B,dw,dw}  = S(w)_{A,up,up}
         Sreal(2,1,1,:,:,:) = Sreal(1,2,2,:,:,:) !S(w)_{B,up,up}  = S(w)_{A,dw,dw}
-        if(master)write(*,*) "*******************************"
-        if(master)write(*,*) "*                             *"
-        if(master)write(*,*) "*  !Enforcing Neel symmetry!  *"
-        if(master)write(*,*) "*                             *"
-        if(master)write(*,*) "*******************************"
+        if(master)write(*,*) "************************************"
+        if(master)write(*,*) "*                                  *"
+        if(master)write(*,*) "*   !Enforcing NEEL(z) symmetry!   *"
+        if(master)write(*,*) "*                                  *"
+        if(master)write(*,*) "************************************"
+     else
+      !solve both sublattices independently with the RDMFT wrapper: 
+        !mpi_lanc=T => MPI lanczos, mpi_lanc=F => MPI for ineq sites
+        !Hloc is now mandatory here
+        call ed_solve(comm,Bath,Hloc,mpi_lanc=.true.)
+        !retrieve all self-energies:
+        call ed_get_sigma_matsubara(Smats,Nlat)
+        call ed_get_sigma_realaxis(Sreal,Nlat)
+     !
      endif
      !
      !COMPUTE THE LOCAL GF:
@@ -193,24 +241,23 @@ program ed_kanemele
      !
      !Fit the new bath, starting from the old bath + the supplied delta
      !Behaves differently depending on the ed_mode input:
-     !IF(NORMAL): normal/magZ phase is solved, so either fit spin1 or spin1&2 -> SPINSYM of choice
+     !IF(NORMAL): normal/magZ phase is solved, so we can fit spin1 and spin2 INDIPENDENTLY
+     !IF(NONSU2): Sz-conservation is broken, so a unique fit for both spins is needed
      select case(ed_mode)
      case default
-        stop "ed_mode!=Normal"
-     case("normal") !Here we use the RDMFT WRAPPER: it takes the whole Bath and Weiss tensors (both ilat).
+        stop "ed_mode has to be normal or nonsu2"
+     case("normal") 
         call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=1)
-        if(.not.spinsym)then
-           call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=2)
-        else
-           call ed_spin_symmetrize_bath(bath,save=.true.)
-        endif
+        call ed_chi2_fitgf(comm,Bath,Weiss,Hloc,ispin=2)
+     case("nonsu2")
+      call ed_chi2_fitgf(comm,Bath,Weiss,Hloc)
      end select
      !
      !MIXING:
      if(iloop>1)Bath=wmixing*Bath + (1.d0-wmixing)*Bath_prev
      Bath_prev=Bath
      !
-     !Check convergence. This is now entirely MPI-aware:
+     !CHECK CONVERGENCE. This is now entirely MPI-aware:
      converged = check_convergence(Weiss(:,1,1,1,1,:),dmft_error,nsuccess,nloop)
      !
      call end_loop
