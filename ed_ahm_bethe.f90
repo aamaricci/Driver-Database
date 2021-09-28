@@ -71,7 +71,7 @@ program ed_ahm_bethe
   Nb=ed_get_bath_dimension()
   allocate(Bath(Nb))
   allocate(Bath_prev(Nb))
-  call ed_init_solver(bath,Hloc)
+  call ed_init_solver(bath)
 
 
   !DMFT loop
