@@ -1,9 +1,9 @@
 #TO BE CHANGED BY USER:
-#$ DRIVER NAME without .f90 extension
+#$ EXE: the DRIVER NAME 
 #$ COMPILER: supported compilers are ifort, gnu >v4.7 or use mpif90
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default if $HOME/.bin in the PATH)
-EXE=ed_hm_bethe
+EXE=solveBHZ_continuo.f90
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
@@ -17,26 +17,12 @@ endef
 
 
 
-define lib_test
-	_TEST+=$(shell pkg-config --cflags $(1);echo $$?)
-	_TEST+=$(shell pkg-config --libs $(1);echo $$?)
-	ifeq ($(_TEST),0)
-	GLOB_INC+=$(shell pkg-config --cflags $(1))
-	GLOB_LIB+=$(shell pkg-config --libs $(1))
-	endif
-endef
-
 
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-GLOB_INC:=$(shell pkg-config --cflags edlat dmft_ed slave_spins dmft_tools scifor)
-GLOB_LIB:=$(shell pkg-config --libs edlat dmft_ed slave_spins dmft_tools scifor)
-# $(call lib_test,"scifor")
-# $(call lib_test,"dmft_tools")
-# $(call lib_test,"slave_spins")
-# $(call lib_test,"dmft_ed")
-# # $(call lib_test,edlat)
+GLOB_INC:=$(shell pkg-config --cflags dmft_ed slave_spins dmft_tools scifor)
+GLOB_LIB:=$(shell pkg-config --libs dmft_ed slave_spins dmft_tools scifor)
 
 ifeq ($(PLAT),intel)
 FFLAG=-O2 -ftz
@@ -58,23 +44,25 @@ endif
 REV=$(shell git rev-parse HEAD)
 VER = 'character(len=41),parameter :: revision = "$(REV)"' > revision.inc
 
+EXEC=$(shell basename -s .f90 ${EXE})
+
 ##$ Extends the implicit support of the Makefile to .f90 files
 .SUFFIXES: .f90
 
 all: FLAG:=${FFLAG} ${FPPMPI}
 all:
 	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ")
+	$(call colorecho,"compiling $(EXEC).f90 ")
 	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) $(FLAG) $(EXEC).f90 -o $(DIREXE)/$(EXEC) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
 
 debug: FLAG:=${DFLAG} ${FPPMPI}
 debug:
 	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ")
+	$(call colorecho,"compiling $(EXEC).f90 ")
 	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) $(FLAG) $(EXEC).f90 -o $(DIREXE)/$(EXEC) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
 
 
@@ -82,17 +70,17 @@ debug:
 serial: FLAG:=${FFLAG} ${FPPSERIAL}
 serial:
 	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ")
+	$(call colorecho,"compiling $(EXEC).f90 ")
 	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) $(FLAG) $(EXEC).f90 -o $(DIREXE)/$(EXEC) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
 
 serial_debug: FLAG:=${DFLAG} ${FPPSERIAL}
 serial_debug:
 	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ")
+	$(call colorecho,"compiling $(EXEC).f90 ")
 	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) $(FLAG) $(EXEC).f90 -o $(DIREXE)/$(EXEC) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
 
 
@@ -102,7 +90,7 @@ serial_debug:
 clean: 
 	@echo "Cleaning:"
 	@rm -f *.mod *.o *~
-	@rm -fv  $(DIREXE)/$(EXE)
+	@rm -fv  $(DIREXE)/$(EXEC)
 
 
 

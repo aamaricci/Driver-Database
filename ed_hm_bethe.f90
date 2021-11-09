@@ -75,7 +75,10 @@ program lancED
   if(master)call TB_write_Hloc(one*diag(H0))
 
 
+  allocate(wfreq(Lmats))
+  wfreq=pi/beta*(2*arange(1,Lmats)-1) !Matsubara freq.
   !Allocate Weiss Field:
+  !local == exist only in the driver, ED does not know about them
   allocate(Weiss(Nspin,Nspin,Norb,Norb,Lmats))
   allocate(Weiss_(Nspin,Nspin,Norb,Norb,Lmats))
   allocate(Smats(Nspin,Nspin,Norb,Norb,Lmats))
@@ -184,18 +187,18 @@ program lancED
   ! !
   ! deallocate(wfreq,Greb,Sreb)
   ! !
-  ! !Realaxis example  
-  ! Lf = 10000                    !arbitrary number of freq.
-  ! eps= 0.0099314d0              !arbitary imaginary shift
-  ! allocate(wfreq(Lf))
-  ! allocate(Greb(Nspin,Nspin,Norb,Norb,Lf)) 
-  ! allocate(Sreb(Nspin,Nspin,Norb,Norb,Lf))
-  ! wfreq=linspace(-10d0,pi2,Lf)  !arbitrary domain
-  ! !call ed_get_gimp/sigma, specifify Complex Freq. == realaxis+xi*eps
-  ! call ed_get_gimp(dcmplx(wfreq,eps),Hloc,Greb)
-  ! call ed_get_sigma(dcmplx(wfreq,eps),Hloc,Sreb)
-  ! call dmft_print_function(Greb,"reGimp",iprint=1,axis="real",zeta=wfreq)
-  ! call dmft_print_function(Sreb,"reSigma",iprint=1,axis="real",zeta=wfreq)
+  ! ! !Realaxis example  
+  ! ! Lf = 10000                    !arbitrary number of freq.
+  ! ! eps= 0.0099314d0              !arbitary imaginary shift
+  ! ! allocate(wfreq(Lf))
+  ! ! allocate(Greb(Nspin,Nspin,Norb,Norb,Lf)) 
+  ! ! allocate(Sreb(Nspin,Nspin,Norb,Norb,Lf))
+  ! ! wfreq=linspace(-10d0,pi2,Lf)  !arbitrary domain
+  ! ! !call ed_get_gimp/sigma, specifify Complex Freq. == realaxis+xi*eps
+  ! ! call ed_get_gimp(dcmplx(wfreq,eps),Hloc,Greb)
+  ! ! call ed_get_sigma(dcmplx(wfreq,eps),Hloc,Sreb)
+  ! ! call dmft_print_function(Greb,"reGimp",iprint=1,axis="real",zeta=wfreq)
+  ! ! call dmft_print_function(Sreb,"reSigma",iprint=1,axis="real",zeta=wfreq)
 
 end program lancED
 
