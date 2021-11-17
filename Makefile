@@ -3,7 +3,7 @@
 #$ COMPILER: supported compilers are ifort, gnu >v4.7 or use mpif90
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default if $HOME/.bin in the PATH)
-EXE=solveBHZ_continuo.f90
+EXE=solveBHZ_reticolo.f90
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
