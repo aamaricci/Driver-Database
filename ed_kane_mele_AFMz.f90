@@ -233,11 +233,8 @@ program ed_kanemele
      call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=4)
      !
      !COMPUTE THE WEISS FIELD (only the Nineq ones)
-     if(cg_scheme=='weiss')then
-        call dmft_weiss(Gmats,Smats,Weiss,Hloc)
-     else
-        call dmft_delta(Gmats,Smats,Weiss,Hloc)
-     endif
+     call dmft_self_consistency(Gmats,Smats,Weiss,Hloc,cg_scheme)
+     call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=4)
      !
      !Fit the new bath, starting from the old bath + the supplied delta
      !Behaves differently depending on the ed_mode input:
@@ -262,9 +259,6 @@ program ed_kanemele
      !
      call end_loop
   enddo
-
-  call dmft_print_gf_matsubara(Gmats,"Gmats",iprint=4)
-
 
   !Extract and print retarded self-energy and Green's function 
   call dmft_gloc_realaxis(Hk,Greal,Sreal)
