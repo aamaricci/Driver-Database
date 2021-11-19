@@ -3,7 +3,7 @@
 #$ COMPILER: supported compilers are ifort, gnu >v4.7 or use mpif90
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default if $HOME/.bin in the PATH)
-EXE=solveBHZ_reticolo.f90
+EXE=solveBHZ_lattice.f90
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
@@ -49,7 +49,7 @@ EXEC=$(shell basename -s .f90 ${EXE})
 ##$ Extends the implicit support of the Makefile to .f90 files
 .SUFFIXES: .f90
 
-all: FLAG:=${FFLAG} ${FPPMPI}
+all: FLAG:=${OFLAG} ${FPPMPI}
 all:
 	@echo ""
 	$(call colorecho,"compiling $(EXEC).f90 ")
