@@ -4,8 +4,8 @@ program testMF
   USE DMFT_TOOLS
   implicit none
   integer                          :: info,unit,Len,i,N
-  real(8)                          :: mh,t,v,tol,tz,tzdens
-  real(8)                          :: gsigma,sigma,x(1),dx(1)
+  real(8)                          :: mh,t,v,tol,tz,tzdens,sigmadens
+  real(8)                          :: gint,sigma,x(1),dx(1)
   real(8)                          :: integral
   logical                          :: minimize,withgf,withbands
   logical                          :: bool
@@ -14,18 +14,17 @@ program testMF
   real(8),dimension(:),allocatable :: sarray
   !
   ! 
-  integer,parameter                           :: Norb=2,Nspin=2,Nso=Nspin*Norb
+  integer,parameter                           :: Norb=2,Nspin=1,Nso=Nspin*Norb
   integer                                     :: Nkx,L,Nktot,Npts
   integer                                     :: iorb,ispin,io
-  complex(8),dimension(Nso,Nso)               :: Gamma1,Gamma2,Gamma5
   complex(8),dimension(:,:,:),allocatable     :: Hk
   complex(8),dimension(:,:,:,:,:),allocatable :: Greal
   real(8)                                     :: dens(Nso)
-  real(8),dimension(:,:),allocatable          :: kpath
+  real(8),dimension(:,:),allocatable          :: kpath,Hloc
 
   call parse_cmd_variable(finput,"FINPUT",default="inputMF.conf")
   call parse_input_variable(t,"t",finput,default=0.2d0)
-  call parse_input_variable(gsigma,"gsigma",finput,default=0.5d0)
+  call parse_input_variable(gint,"gint",finput,default=0.5d0)
   call parse_input_variable(mh,"MH",finput,default=1.d0)
   call parse_input_variable(v,"v",finput,default=0.3d0)
   call parse_input_variable(sigma,"sigma",finput,default=0.05d0)
@@ -63,10 +62,8 @@ program testMF
   dx(1)=0.01d0
   call fmin(bhz_f,x,lambda=dx)
   sigma=x(1)
+  tz = sigma/gint
 
-  open(free_unit(unit),file="sigma.restart")
-  write(unit,*)sigma
-  close(unit)
 
 
   if(.not.minimize)then
@@ -81,33 +78,64 @@ program testMF
   endif
 
 
-  Nktot= Nkx*Nkx
-  !SETUP THE GAMMA MATRICES:
-  gamma1=kron_pauli( pauli_tau_z, pauli_sigma_x)
-  gamma2=kron_pauli( pauli_tau_0,-pauli_sigma_y)
-  gamma5=kron_pauli( pauli_tau_0, pauli_sigma_z)
-  call TB_set_ei([1d0,0d0],[0d0,1d0])
-  call TB_set_bk([pi2,0d0],[0d0,pi2])
 
+  Nktot= Nkx*Nkx
+  call TB_set_bk([pi2,0d0],[0d0,pi2])
 
   allocate(Hk(Nso,Nso,Nktot))
   call TB_build_model(Hk,hk_model,Nso,[Nkx,Nkx])
+  allocate(Hloc(Nso,Nso))
+  Hloc = sum(Hk,dim=3)/Nktot
+  where(abs(Hloc)<1d-6)Hloc=0d0
+  call TB_write_Hloc(one*Hloc)
+
+  
   dens = get_dens(0d0)
   open(10,file="observables.nint")
   write(10,"(20F20.12)")(dens(iorb),iorb=1,Nso),sum(dens)
   close(10)
   write(*,"(A,20F14.9)")"Occupations =",(dens(iorb),iorb=1,Nso),sum(dens)
 
-  tz = dens(1)-dens(2)
+  tzdens = dens(1)-dens(2)
+  sigmadens = gint*tzdens
+
+
+  open(free_unit(unit),file="tz.dat")
+  write(unit,*)mh,gint,tz,tzdens
+  close(unit)
 
 
   open(free_unit(unit),file="sigma.dat")
-  write(unit,*)mh,gsigma,sigma,tz*gsigma
+  write(unit,*)mh,gint,sigma,sigmadens
   close(unit)
 
-  open(free_unit(unit),file="meff.dat")
-  write(unit,*)mh,gsigma,mh-sigma,mh-gsigma*tz
+  open(free_unit(unit),file="sigma.restart")
+  write(unit,*)sigma
   close(unit)
+
+
+
+  !SOLVE ALONG A PATH IN THE BZ.
+  if(withbands)then
+     Npts=3
+     allocate(kpath(Npts,3))
+     kpath(1,:)=-kpoint_X1
+     kpath(2,:)=kpoint_Gamma
+     kpath(3,:)=kpoint_X1
+     call TB_Solve_model(Hk_model,Nso,kpath,100,&
+          colors_name=[red1,blue1],&
+          points_name=[character(len=20) :: '-X', 'G', 'X'],&
+          file="Eigenband.nint")
+  endif
+
+  if(withgf)then
+     !Build the local GF:
+     allocate(Greal(Nspin,Nspin,Norb,Norb,L))
+     call dmft_gloc_realaxis(Hk,Greal,zeros(Nspin,Nspin,Norb,Norb,L))
+     call dmft_print_gf_realaxis(Greal,"Gloc",1)
+  endif
+
+
 
 contains
 
@@ -117,7 +145,7 @@ contains
     real(8)              :: integral
     sigma = a(1)
     call quad2d(N,integral)
-    f = (sigma**2)/gsigma - 2d0*integral
+    f = (sigma**2)/2d0/gint - 2d0*integral
   end function bhz_f
 
   function hk_bhz(kvec) result(hk)
@@ -126,27 +154,28 @@ contains
     real(8)              :: ek,x2,y2,kx,ky,meff
     kx=kvec(1)
     ky=kvec(2)
-    ek = -2d0*t*(cos(kx)+cos(ky))
+    ek = 2d0*t*(2d0-cos(kx)-cos(ky))
     x2 =  v*sin(kx);x2=x2**2
     y2 =  v*sin(ky);y2=y2**2
-    meff= mh + sigma!*gsigma
-    Hk = sqrt( (Meff + ek)**2 + (x2+y2) )
+    Hk = sqrt( (mh + sigma + ek)**2 + (x2+y2) )
   end function hk_bhz
 
   function hk_model(kpoint,N) result(hk)
     real(8),dimension(:)      :: kpoint
     integer                   :: N
     real(8)                   :: ek
-    real(8)                   :: kx,ky,meff
+    real(8)                   :: kx,ky
     complex(8),dimension(N,N) :: hk
-    if(N/=4)stop "hk_model: error in N dimensions"
+    if(N/=2)stop "hk_model: error in N dimensions"
     kx=kpoint(1)
     ky=kpoint(2)
-    ek = -2d0*t*(cos(kx)+cos(ky))
-    Meff= mh + sigma!*gsigma
-    Hk = (Meff + ek)*Gamma5 + v*sin(kx)*Gamma1 + v*sin(ky)*Gamma2
+    ek = 2d0*t*(2d0-cos(kx)-cos(ky))
+    Hk = (mh + sigma + ek)*pauli_tau_z + v*sin(kx)*pauli_tau_x + v*sin(ky)*pauli_tau_y
   end function hk_model
-  
+
+
+
+
   function hk_x(kx) result(fx)
     real(8) :: kx
     real(8) :: fx
@@ -188,7 +217,7 @@ contains
     enddo
     ndens=ndens/Nktot
   end function get_dens
-end program
+end program testMF
 
 
 
