@@ -21,8 +21,8 @@ endef
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-GLOB_INC:=$(shell pkg-config --cflags dmft_ed slave_spins dmft_tools scifor)
-GLOB_LIB:=$(shell pkg-config --libs dmft_ed slave_spins dmft_tools scifor)
+GLOB_INC:=$(shell pkg-config --cflags dmft_ed  dmft_tools scifor)
+GLOB_LIB:=$(shell pkg-config --libs dmft_ed  dmft_tools scifor)
 
 ifeq ($(PLAT),intel)
 FFLAG=-O2 -ftz

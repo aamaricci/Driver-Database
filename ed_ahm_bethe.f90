@@ -72,14 +72,14 @@ program ed_ahm_bethe
   allocate(Bath(Nb))
   allocate(Bath_prev(Nb))
   call ed_init_solver(bath)
-
+  
 
   !DMFT loop
   iloop=0;converged=.false.
   do while(.not.converged.AND.iloop<nloop)
      iloop=iloop+1
      call start_loop(iloop,nloop,"DMFT-loop")
-
+     
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
      call ed_solve(bath,Hloc)
 

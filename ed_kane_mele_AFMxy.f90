@@ -198,10 +198,22 @@ program ed_kanemele
   if(xKICK)then
     lambdasym_vector(1,2)= +sb_field
     lambdasym_vector(2,2)= -sb_field
+    !For the log file
+    if(master)write(*,*) "*************************************************"
+    if(master)write(*,*) "*                                               *"
+    if(master)write(*,*) "*  !Applying an AFMx kick to the initial bath!  *"
+    if(master)write(*,*) "*                                               *"
+    if(master)write(*,*) "*************************************************"
   endif
   if(yKICK)then  !Safe: look at the preliminary checks
-   lambdasym_vector(1,3)= +sb_field
-   lambdasym_vector(2,3)= -sb_field
+    lambdasym_vector(1,3)= +sb_field
+    lambdasym_vector(2,3)= -sb_field
+    !For the log file
+    if(master)write(*,*) "*************************************************"
+    if(master)write(*,*) "*                                               *"
+    if(master)write(*,*) "*  !Applying an AFMy kick to the initial bath!  *"
+    if(master)write(*,*) "*                                               *"
+    if(master)write(*,*) "*************************************************"
   endif
 
   !SETUP H_replica
