@@ -4,7 +4,7 @@ program testMF
   implicit none
   integer                                     :: info,unit,Len,i,N
   real(8)                                     :: mh,t,v,tol,sigma,tz,tzdens,sigmadens
-  real(8)                                     :: gint,uloc,jhratio,x(1),dx(1)
+  real(8)                                     :: gint,jhratio,x(1),dx(1)
   real(8)                                     :: integral
   logical                                     :: minimize,withgf,withbands
   logical                                     :: bool
@@ -14,19 +14,20 @@ program testMF
   ! 
   integer,parameter                           :: Norb=2,Nspin=1,Nso=Nspin*Norb
   integer                                     :: Nkx,L,Nktot,Npts
-  integer                                     :: iorb,ispin,io
+  integer                                     :: iorb,ispin,io,mflag
   complex(8),dimension(:,:,:),allocatable     :: Hk
   complex(8),dimension(:,:,:,:,:),allocatable :: Greal
   real(8)                                     :: dens(Nso)
-  real(8),dimension(:,:),allocatable          :: kpath
+  real(8),dimension(:,:),allocatable          :: kpath,Hloc
 
   call parse_cmd_variable(finput,"FINPUT",default="inputMF.conf")
   call parse_input_variable(t,"t",finput,default=0.2d0)
-  call parse_input_variable(uloc,"uloc",finput,default=1.d0)
+  call parse_input_variable(gint,"gint",finput,default=1.d0)
   call parse_input_variable(jhratio,"jhratio",finput,default=0.25d0)
   call parse_input_variable(mh,"MH",finput,default=1.d0)
   call parse_input_variable(v,"v",finput,default=0.3d0)
-  call parse_input_variable(tz,"tz",finput,default=0d0)
+  call parse_input_variable(sigma,"sigma",finput,default=0d0)
+  call parse_input_variable(mflag,"mflag",finput,default=0)
   call parse_input_variable(minimize,"minimize",finput,default=.false.)
   call parse_input_variable(len,"len",finput,default=100)
   call parse_input_variable(smin,"smin",finput,default=-2d0)
@@ -39,15 +40,16 @@ program testMF
   call parse_input_variable(withgf,"withgf",finput,default=.false.)
   call parse_input_variable(withbands,"withbands",finput,default=.true.)
   !
-  inquire(file="tz.restart",exist=bool)
+  inquire(file="sigma.restart",exist=bool)
   if(bool)then
-     print*,"reading tz"
-     open(free_unit(unit),file="tz.restart")
-     read(unit,*)tz
+     print*,"reading sigma"
+     open(free_unit(unit),file="sigma.restart")
+     read(unit,*)sigma
      close(unit)
   endif
   call save_input(trim(finput))
 
+  if( mflag/=0 .AND. mflag/=1 )stop "ERROR Mflag != [0,1]"
   call add_ctrl_var(1000d0,"BETA")
   call add_ctrl_var(Norb,"NORB")
   call add_ctrl_var(Nspin,"Nspin")
@@ -56,23 +58,17 @@ program testMF
   call add_ctrl_var(10d0,"wfin")
   call add_ctrl_var(0.04d0,"eps")
 
+  gint = gint*(1d0-5d0*Jhratio)
 
-  gint = uloc*(1d0-5d0*Jhratio)!/2d0
-  sigma = gint*tz
-  
   x(1)=sigma
   dx(1)=0.01d0
   call fmin(bhz_f,x,lambda=dx)
   sigma=x(1)
   tz = sigma/gint
 
-  open(free_unit(unit),file="tz.restart")
-  write(unit,*)tz
-  close(unit)
-
 
   if(.not.minimize)then
-     open(free_unit(unit),file="Ftz.dat")
+     open(free_unit(unit),file="fsigma.dat")
      allocate(sarray(len))
      sarray = linspace(smin,smax,len)
      do i=1,len
@@ -85,12 +81,16 @@ program testMF
 
 
   Nktot= Nkx*Nkx
-  call TB_set_ei([1d0,0d0],[0d0,1d0])
   call TB_set_bk([pi2,0d0],[0d0,pi2])
 
 
   allocate(Hk(Nso,Nso,Nktot))
+  allocate(Hloc(Nso,Nso))
   call TB_build_model(Hk,hk_model,Nso,[Nkx,Nkx])
+  Hloc = sum(Hk,dim=3)/Nktot
+  where(abs(Hloc)<1d-6)Hloc=0d0
+  call TB_write_Hloc(one*Hloc)
+
   dens = get_dens(0d0)
   open(10,file="observables.nint")
   write(10,"(20F20.12)")(dens(iorb),iorb=1,Nso),sum(dens)
@@ -99,13 +99,21 @@ program testMF
 
   tzdens = dens(1)-dens(2)
   sigmadens = gint*tzdens
-  
+
+
+
+
   open(free_unit(unit),file="tz.dat")
   write(unit,*)mh,gint,tz,tzdens
   close(unit)
 
+
   open(free_unit(unit),file="sigma.dat")
   write(unit,*)mh,gint,sigma,sigmadens
+  close(unit)
+
+  open(free_unit(unit),file="sigma.restart")
+  write(unit,*)sigma
   close(unit)
 
 
@@ -118,14 +126,16 @@ program testMF
 
   !SOLVE ALONG A PATH IN THE BZ.
   if(withbands)then
-     Npts=3
+     Npts=5
      allocate(kpath(Npts,3))
      kpath(1,:)=-kpoint_X1
      kpath(2,:)=kpoint_Gamma
      kpath(3,:)=kpoint_X1
+     kpath(4,:)=kpoint_M1
+     kpath(5,:)=kpoint_Gamma
      call TB_Solve_model(Hk_model,Nso,kpath,100,&
           colors_name=[red1,blue1],&
-          points_name=[character(len=20) :: '-X', 'G', 'X'],&
+          points_name=[character(len=20) :: '-X', 'G', 'X', 'M', 'G'],&
           file="Eigenband.nint")
   endif
 
@@ -157,12 +167,25 @@ contains
     real(8)              :: ek,x2,y2,kx,ky
     kx  = kvec(1)
     ky  = kvec(2)
-    ek  = -2d0*t*(cos(kx)+cos(ky))
+    ek  = 2d0*t*(2d0*mflag-cos(kx)-cos(ky))
     x2  =  v*sin(kx);x2=x2**2
     y2  =  v*sin(ky);y2=y2**2
-    Hk  = sqrt( (sigma + Mh + ek)**2 + (x2+y2) )
+    Hk  = sqrt( (mh + sigma + ek)**2 + (x2+y2) )
   end function hk_bhz
 
+  
+  function hk_model(kpoint,N) result(hk)
+    real(8),dimension(:)      :: kpoint
+    integer                   :: N
+    real(8)                   :: ek
+    real(8)                   :: kx,ky,meff
+    complex(8),dimension(N,N) :: hk
+    if(N/=2)stop "hk_model: error in N dimensions"
+    kx=kpoint(1)
+    ky=kpoint(2)
+    ek = 2d0*t*(2d0*mflag-cos(kx)-cos(ky))
+    Hk = (mh + sigma + ek)*pauli_tau_z + v*sin(kx)*pauli_tau_x + v*sin(ky)*pauli_tau_y
+  end function hk_model
 
 
 
@@ -192,18 +215,6 @@ contains
 
 
 
-  function hk_model(kpoint,N) result(hk)
-    real(8),dimension(:)      :: kpoint
-    integer                   :: N
-    real(8)                   :: ek
-    real(8)                   :: kx,ky,meff
-    complex(8),dimension(N,N) :: hk
-    if(N/=2)stop "hk_model: error in N dimensions"
-    kx=kpoint(1)
-    ky=kpoint(2)
-    ek = -2d0*t*(cos(kx)+cos(ky))
-    Hk = (sigma + Mh + ek)*pauli_tau_z + v*sin(kx)*pauli_tau_x + v*sin(ky)*pauli_tau_y
-  end function hk_model
 
   function get_dens(mu) result(ndens)
     real(8),intent(in)            :: mu
@@ -231,40 +242,3 @@ end program testMF
 
 
 
-! N0 = N
-! call simps2d_recursive(hk_bhz,[0d0,pi2],[0d0,pi2],&
-!      N0=N0,threshold=tol,int=integral)
-! integral = integral/N0/N0
-! subroutine simps2d_recursive(func,xrange,yrange,N0,Nstep,threshold,iter,int)
-!   interface
-!      function func(x)
-!        real(8),dimension(:) :: x
-!        real(8)              :: func
-!      end function func
-!   end interface
-!   real(8),dimension(2)      :: xrange,yrange
-!   integer                   :: N,icount
-!   real(8)                   :: eps,int0
-!   integer,optional          :: N0,Nstep,iter
-!   integer                   :: N0_,Nstep_
-!   real(8),optional          :: threshold
-!   real(8)                   :: threshold_
-!   real(8)                   :: int
-!   N0_=50;if(present(N0))N0_=N0
-!   Nstep_=10;if(present(Nstep))Nstep_=Nstep
-!   threshold_=0.1d0;if(present(threshold))threshold_=threshold
-!   !
-!   N=N0_
-!   eps=1d0
-!   icount=1
-!   int=simps2d(func,xrange,yrange,N,N)
-!   do while (eps>threshold_)
-!      icount= icount+1
-!      int0  = int
-!      N     = N+Nstep_
-!      int=simps2d(func,xrange,yrange,N,N)
-!      eps=abs(int-int0)/abs(int)
-!      if(present(iter))iter=icount
-!      if(present(N0))N0=N
-!   enddo
-! end subroutine simps2d_recursive

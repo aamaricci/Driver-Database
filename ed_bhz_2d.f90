@@ -36,14 +36,13 @@ program ed_bhz
   real(8),dimension(:),allocatable            :: lambdasym_vector
   complex(8),dimension(:,:,:,:,:),allocatable :: Hsym_basis
   !MPI Vars:
-  integer                                     :: irank,comm,rank,size2,ierr
+  integer                                     :: irank,comm,rank,ierr
   logical                                     :: master,getbands,getakw
 
   call init_MPI()
   comm = MPI_COMM_WORLD
   call StartMsg_MPI(comm)
   rank = get_Rank_MPI(comm)
-  size2 = get_Size_MPI(comm)
   master = get_Master_MPI(comm)
 
 
