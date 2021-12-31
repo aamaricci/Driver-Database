@@ -6,44 +6,45 @@ program ed_ti_slab
   implicit none
 
   integer                                       :: iloop
-  integer                                       :: Nlso
-  integer                                       :: Nso
-  integer                                       :: Nineq,Nlat
-  integer                                       :: ilat,iy,iorb,ispin,ineq,i,layer,iii
-  logical                                       :: converged,converged_orb1,converged_orb2,converged_orb3,PBC
+  integer                                       :: Nineq,Nlat,Nlso,Nso
+  integer                                       :: ilat,iorb,ispin,ineq
+  logical                                       :: converged,PBC
+  
   !Bath:
   integer                                       :: Nb
+  real(8)                                       :: wmixing
   real(8),allocatable,dimension(:,:)            :: Bath_ineq
   real(8),allocatable,dimension(:,:)            :: Bath_prev
+  
   !The local hybridization function:
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Weiss_ineq
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Smats,Smats_ineq
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Sreal,Sreal_ineq
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Gmats,Gmats_ineq
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Greal
+  complex(8),allocatable,dimension(:,:,:,:,:)   :: S0
+  
   !hamiltonian input:
   complex(8),allocatable,dimension(:,:,:)       :: Hkr
   complex(8),allocatable,dimension(:,:)         :: tiHloc
-  complex(8),allocatable,dimension(:,:,:,:,:)   :: Hloc,Hloc_ineq,S0
-
-  !gamma matrices:
-  complex(8),dimension(4,4)                     :: emat,soxmat,soymat,sozmat,NHmat,GapOpeningMat
-  real(8),allocatable,dimension(:)              :: Wtk
-  real(8),allocatable,dimension(:)              :: kxgrid,kzgrid
+  complex(8),allocatable,dimension(:,:,:,:,:)   :: Hloc,Hloc_ineq
   real(8),dimension(:,:),allocatable            :: kpath
-  integer                                       :: Nk,Lk,Ly,Nkpath,IOFFS
-  real(8)                                       :: e0,mh,lambda,wmixing,akrange,GapOpeningField,NHfield_up,NHfield_dw,dens
-  real(8)                                       :: deltaRe,deltaIm
-  logical                                       :: orbsym,tridiag,lrsym
+  integer                                       :: Nk,Lk,Ly,Nkpath
+  real(8)                                       :: dens
+
+  !gamma matrices and fields:
+  complex(8),dimension(4,4)                     :: emat,soxmat,soymat,sozmat
+  real(8)                                       :: e0,mh,lambda
+  complex(8),dimension(4,4)                     :: NHmat,GapOpeningMat
+  real(8)                                       :: GapOpeningField,NHfield_up,NHfield_dw
+
+  !misc
+  logical                                       :: tridiag,lrsym
   character(len=60)                             :: finput
   character(len=32)                             :: hkfile
-  real(8),dimension(:,:),allocatable            :: Zmats
-  complex(8),dimension(:,:,:),allocatable       :: Zfoo
-  complex(8),dimension(:,:,:),allocatable     :: toconverge
-    !SYMMETRIES TEST
-  real(8),dimension(:,:),allocatable            :: lambdasym_vector
-  complex(8),dimension(:,:,:,:,:),allocatable   :: Hsym_basis
+  complex(8),dimension(:,:,:),allocatable       :: toconverge
 
+  !mpi
   integer                                       :: comm,rank
   logical                                       :: master,getbands
 
@@ -56,7 +57,6 @@ program ed_ti_slab
   ! 
   !
   call parse_cmd_variable(finput,"FINPUT",default='inputED_ti_SLAB.conf')
-  call parse_input_variable(akrange,"AKRANGE",finput,default=5.d0)
   call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in")
   call parse_input_variable(nk,"NK",finput,default=100)
   call parse_input_variable(Ly,"Ly",finput,default=20)
@@ -64,15 +64,13 @@ program ed_ti_slab
   call parse_input_variable(tridiag,"TRIDIAG",finput,default=.true.)
   call parse_input_variable(mh,"MH",finput,default=1d0)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.3d0)
-  call parse_input_variable(GapOpeningField,"GAPOPENINGFIELD",finput,default=0.1d0)
-  call parse_input_variable(NHfield_up,"NHFIELD_UP",finput,default=0.1d0)
-  call parse_input_variable(NHfield_dw,"NHFIELD_DW",finput,default=0.1d0)
+  call parse_input_variable(GapOpeningField,"GAPOPENINGFIELD",finput,default=0.0d0)
+  call parse_input_variable(NHfield_up,"NHFIELD_UP",finput,default=0.0d0)
+  call parse_input_variable(NHfield_dw,"NHFIELD_DW",finput,default=0.0d0)
   call parse_input_variable(e0,"e0",finput,default=1d0)
   call parse_input_variable(PBC,"PBC",finput,default=.false.)
   call parse_input_variable(lrsym,"LRSYM",finput,default=.true.)
-  call parse_input_variable(orbsym,"ORBSYM",finput,default=.false.)
   call parse_input_variable(wmixing,"WMIXING",finput,default=0.5d0)
-  call parse_input_variable(ioffs,"IOFFS",finput,default=0)
   call parse_input_variable(getbands,"GETBANDS",finput,default=.true.)
   !
   call ed_read_input(trim(finput),comm)
@@ -125,8 +123,6 @@ program ed_ti_slab
   allocate(Greal(Nlat,Nspin,Nspin,Norb,Norb,Lreal));Greal=zero
   allocate(Hloc(Nlat,Nspin,Nspin,Norb,Norb));Hloc=zero
   allocate(S0(Nlat,Nspin,Nspin,Norb,Norb));S0=zero
-  allocate(Zmats(Nlso,Nlso));Zmats=eye(Nlso)
-  allocate(Zfoo(Nlat,Nso,Nso));Zfoo=0d0
   allocate(Weiss_ineq(Nineq,Nspin,Nspin,Norb,Norb,Lmats));Weiss_ineq=zero
   allocate(Smats_ineq(Nineq,Nspin,Nspin,Norb,Norb,Lmats));Smats_ineq=zero
   allocate(Sreal_ineq(Nineq,Nspin,Nspin,Norb,Norb,Lreal));Sreal_ineq=zero
@@ -142,48 +138,25 @@ program ed_ti_slab
      Hloc_ineq(ineq,:,:,:,:) = Hloc(ilat,:,:,:,:)
   enddo
 
+  !If postprocessing only
   if(getbands)then
     call read_sigma_matsubara(Smats)
-    !Smats=0.1*real(Smats)+xi*imag(Smats)
-    !call dmft_gloc_matsubara(Hkr,Gmats,Smats,tridiag=tridiag)
-    do iii=1,Nlat
-      S0(iii,:,:,:,:) = Smats(iii,:,:,:,:,1)
-    enddo
-    deltaRe=abs(Real(S0(1,1,1,2,2))-Real(S0(1,2,2,2,2)))
-    deltaIm=abs(Imag(S0(1,1,1,2,2))-Imag(S0(1,2,2,2,2)))
-    if(master)call build_eigenbands()
-    !dens = 0d0
-    !do ilat=1,Nlat
-    !  dens = dens+(fft_get_density(Gmats(ilat,1,1,1,1,:),beta)+fft_get_density(Gmats(ilat,2,2,1,1,:),beta))/Nlso
-    !  dens = dens+(fft_get_density(Gmats(ilat,1,1,2,2,:),beta)+fft_get_density(Gmats(ilat,2,2,2,2,:),beta))/Nlso
-    !  dens = dens+(fft_get_density(Gmats(ilat,1,1,3,3,:),beta)+fft_get_density(Gmats(ilat,2,2,3,3,:),beta))/Nlso
-    !enddo
-    !if(master)then
-    !  write(LOGfile,*)" "
-    !  write(LOGfile,*)"Density is ", dens
-    !endif
+    if(master)then
+      do ilat=1,Nlat
+        S0(ilat,:,:,:,:) = Smats(ilat,:,:,:,:,1)
+      enddo
+      call build_eigenbands()
+    endif
     call finalize_MPI()
     STOP
   endif
   
   !Setup solver
-  if(bath_type=="replica")then
-     allocate(lambdasym_vector(Nineq,1))
-     allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,1))
-     Hsym_basis(:,:,:,:,1)=j2so(emat)    ;lambdasym_vector(:,1)=Mh
-     call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
-     Nb=ed_get_bath_dimension(Hsym_basis)
-  else     
-     Nb=ed_get_bath_dimension()
-  endif
-
-  
-  
+  Nb=ed_get_bath_dimension()
   allocate(Bath_ineq(Nineq,Nb) )
   allocate(Bath_prev(Nineq,Nb) )
   call ed_init_solver(comm,Bath_ineq)
 
-  
   !DMFT loop:
   iloop=0 ; converged=.false.
   do while(.not.converged.AND.iloop<nloop)
@@ -192,21 +165,12 @@ program ed_ti_slab
      !
      call ed_solve(comm,Bath_ineq,Hloc_ineq)
      ! 
-     do ilat=1,Nineq
-      call ed_get_sigma_matsubara(Smats_ineq(ilat,:,:,:,:,:),Nineq)
-     enddo
+     call ed_get_sigma_matsubara(Smats_ineq,Nineq)
      !
      do ilat=1,Nlat
         ineq = ilat2ineq(ilat)
         Smats(ilat,:,:,:,:,:) = Smats_ineq(ineq,:,:,:,:,:)
         S0(ilat,:,:,:,:)      = Smats_ineq(ineq,:,:,:,:,1)
-     enddo
-     do ilat=1,Nlat
-        Zfoo(ilat,:,:)        = select_block(ilat,S0)
-        do iorb=1,Nso
-           i = iorb + (ilat-1)*Nso
-           Zmats(i,i)  = 1.d0/( 1.d0 + abs( dimag(Zfoo(ilat,iorb,iorb))/(pi/beta) ))
-        enddo
      enddo
      !
      ! compute the local gf:
@@ -223,26 +187,22 @@ program ed_ti_slab
      call ed_chi2_fitgf(Comm,Bath_ineq,Weiss_ineq,Hloc_ineq,ispin=1)
      call ed_chi2_fitgf(Comm,Bath_ineq,Weiss_ineq,Hloc_ineq,ispin=2)
      !
-     !if(orbsym)then
-     !  do layer=1,Nineq
-     !   call ed_copy_spin_orb_bath_component(Bath_ineq(layer,:),1,2,Bath_ineq(layer,:),1,3)
-     !   call ed_copy_spin_orb_bath_component(Bath_ineq(layer,:),2,2,Bath_ineq(layer,:),2,3)
-     !   !
-     !  enddo
-     !endif
      !
      !MIXING the current bath with the previous:
      if(iloop>1)Bath_ineq=wmixing*Bath_ineq + (1.d0-wmixing)*Bath_prev
      Bath_prev=Bath_ineq
      !
+     !Components to converge
      do ilat=1,Nineq
-       toconverge(ilat,1,:)=Weiss_ineq(ilat,1,1,2,2,:) + Weiss_ineq(ilat,2,2,2,2,:)
-       toconverge(ilat,2,:)=Weiss_ineq(ilat,1,1,3,3,:) + Weiss_ineq(ilat,2,2,3,3,:)
+       toconverge(ilat,1,:) = Weiss_ineq(ilat,1,1,2,2,:)
+       toconverge(ilat,2,:) = Weiss_ineq(ilat,2,2,2,2,:)
+       toconverge(ilat,3,:) = Weiss_ineq(ilat,1,1,3,3,:)
+       toconverge(ilat,4,:) = Weiss_ineq(ilat,2,2,3,3,:)
      enddo
      !
      converged = check_convergence(toconverge,dmft_error,nsuccess,nloop)
      !
-     !
+     !Density evaluation and xmu search
      dens = 0d0
      do ilat=1,Nlat
        dens = dens+(fft_get_density(Gmats(ilat,1,1,1,1,:),beta)+fft_get_density(Gmats(ilat,2,2,1,1,:),beta))/Nlso
@@ -250,11 +210,6 @@ program ed_ti_slab
        dens = dens+(fft_get_density(Gmats(ilat,1,1,3,3,:),beta)+fft_get_density(Gmats(ilat,2,2,3,3,:),beta))/Nlso
      enddo
      if(nread/=0.d0)then
-        !
-        if(master)then
-          !write(LOGfile,*)" "
-          !write(LOGfile,*)"Density is ", dens
-        endif
         call ed_search_chemical_potential(xmu,dens,converged)
      endif
      call end_loop
@@ -262,26 +217,13 @@ program ed_ti_slab
 
 
   call ed_get_sigma_realaxis(Sreal_ineq,Nineq)
+  
   do ilat=1,Nlat
      ineq = ilat2ineq(ilat)
      Sreal(ilat,:,:,:,:,:) = Sreal_ineq(ineq,:,:,:,:,:)
+     Smats(ilat,:,:,:,:,:) = Smats_ineq(ineq,:,:,:,:,:)
+     S0(ilat,:,:,:,:)      = Smats_ineq(ineq,:,:,:,:,1)
   enddo
-  !call dmft_gloc_realaxis(Comm,Hkr,Wtk,Greal,Sreal)
-  
-  !
-  !################################################
-  Smats=0.0+xi*imag(smats)
-  do iii=1,Nlat
-    !Smats(iii,1,1,2,2,:)=Smats(1,1,1,3,3,:)
-    !Smats(iii,2,2,2,2,:)=Smats(1,2,2,3,3,:)
-    S0(iii,:,:,:,:) = Smats(iii,:,:,:,:,1)
-  enddo
-  
-  print*,Smats(1,1,1,2,2,1)
-  print*,Smats(1,2,2,2,2,1)
-  print*,Smats(1,1,1,3,3,1)
-  print*,Smats(1,2,2,3,3,1)
-  !################################################
   !
   if(master)call build_eigenbands()
 
@@ -310,14 +252,11 @@ contains
     endif
     !
     if(allocated(Hkr))deallocate(Hkr)
-    if(allocated(Wtk))deallocate(Wtk)
     allocate(Hkr(Nlso,Nlso,Lk))
-    allocate(Wtk(Lk))
     !
     call TB_set_bk([pi2,0d0,0d0],[0d0,pi2,0d0],[0d0,0d0,pi2])
     call TB_build_model(Hkr,ti_edge_model,Ly,Nso,[Nk,1,Nk],pbc=PBC,wdos=.false.)
     !   
-    Wtk = 1d0/(Lk)
     !
     !SETUP THE LOCAL PART Hloc(Ry)
     if(allocated(tiHloc))deallocate(tiHloc)
@@ -338,7 +277,7 @@ contains
     character(len=30)                             :: suffix
     integer                                       :: ilat,ispin,iorb,ineq
     real(8),dimension(:),allocatable              :: wm
-    call assert_shape(Self,[Nlat,Nspin,Nspin,Norb,Norb,Lmats],"read_sigma_matsubara","Self_ineq")
+    call assert_shape(Self,[Nlat,Nspin,Nspin,Norb,Norb,Lmats],"read_sigma_matsubara","Self")
     allocate(wm(Lmats))
     allocate(Self_ineq(Nineq,Nspin,Nspin,Norb,Norb,Lmats))
     wm = pi/beta*(2*arange(1,Lmats)-1)
@@ -406,22 +345,13 @@ contains
     Npts=3
     allocate(Kpath(Npts,3))
     offset=find_x_coordinate(50)/pi
+    !
     kpath(1,:)=[offset,0d0,-1d0]*pi
     kpath(2,:)=[offset,0d0,0d0]*pi
     kpath(3,:)=[offset,0d0,1d0]*pi
-    !kpath(4,:)=[0d0,0d0,0d0]*pi
-    !kpath(5,:)=[1d0,0d0,0d0]*pi
-    !kpath(6,:)=[2d0,0d0,0d0]*pi
     file="Eigenbands.nint"
     allocate(colors(Ly,Nso))
-    colors = white
-    colors(1+IOFFS,:) = [red1,blue1,red1,blue1]
-    colors(Ly-IOFFS,:) =[blue1,red1,blue1,red1]
-    call TB_SOLVE_MODEL(ti_edge_model,Ly,Nso,kpath,Nkpath,&
-         colors_name=colors,&
-         points_name=[character(len=10) :: "-Z+dx","G+dx","Z+dx","G","X"],&
-         file="Eigenbands.nint",&
-         pbc=PBC)
+    colors = black
     call solve_nh_model(ti_edge_model,Ly,Nso,kpath,Nkpath,&
          colors_name=colors,&
          points_name=[character(len=10) :: "-Z+dx","G+dx","Z+dx","G","X"],&
@@ -439,8 +369,8 @@ contains
     !
     yval_tmp_old=1000
     do interval = 1,Nintervals
-      xmin=pi/Nintervals*interval
-      xmax=pi/Nintervals*(interval+1)
+      xmin= -pi + 2*pi/Nintervals*interval
+      xmax= -pi + 2*pi/Nintervals*(interval+1)
       call  brent_strict(gap_minimum,xcoord_tmp,[xmin,xmax])
       yval_tmp=abs(gap_minimum(xcoord_tmp))
       if(yval_tmp.lt.yval_tmp_old)then 
@@ -504,7 +434,6 @@ contains
        Hrk(1:N,Itmin:Itmax)=TmatH
        Hrk(Itmin:Itmax,1:N)=Tmat
     endif
-    Hrk = matmul(Zmats,Hrk)
   end function ti_edge_model
 
   function h0_rk_ti(kx,kz,N) result(H)
@@ -1018,7 +947,5 @@ contains
       b=c
       c=d
     end subroutine shft
-
-  
 
 end program ed_ti_slab
