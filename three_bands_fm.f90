@@ -42,11 +42,12 @@ program ed_ti_slab
   logical                                       :: tridiag,lrsym
   character(len=60)                             :: finput
   character(len=32)                             :: hkfile
+  real(8)                                       :: ep_energy,ep_location,ep_egap
   complex(8),dimension(:,:,:),allocatable       :: toconverge
 
   !mpi
   integer                                       :: comm,rank
-  logical                                       :: master,getbands
+  logical                                       :: master,getbands,searchxmu
 
 
   call init_MPI()
@@ -72,6 +73,7 @@ program ed_ti_slab
   call parse_input_variable(lrsym,"LRSYM",finput,default=.true.)
   call parse_input_variable(wmixing,"WMIXING",finput,default=0.5d0)
   call parse_input_variable(getbands,"GETBANDS",finput,default=.true.)
+  call parse_input_variable(searchxmu,"SEARCHXMU",finput,default=.false.)
   !
   call ed_read_input(trim(finput),comm)
 
@@ -128,7 +130,7 @@ program ed_ti_slab
   allocate(Sreal_ineq(Nineq,Nspin,Nspin,Norb,Norb,Lreal));Sreal_ineq=zero
   allocate(Gmats_ineq(Nineq,Nspin,Nspin,Norb,Norb,Lmats));Gmats_ineq=zero
   allocate(Hloc_ineq(Nineq,Nspin,Nspin,Norb,Norb));Hloc_ineq=zero
-  allocate(toconverge(Nineq,2,Lmats));toconverge=zero
+  allocate(toconverge(Nineq,6,Lmats));toconverge=zero
 
   !Buil the Hamiltonian on a grid or on  path
   call build_hkr(trim(hkfile))
@@ -147,6 +149,14 @@ program ed_ti_slab
       enddo
       call build_eigenbands()
     endif
+    call dmft_gloc_matsubara(Hkr,Gmats,Smats,tridiag=tridiag)
+    dens=0d0
+     do ilat=1,Nlat
+       dens = dens+(fft_get_density(Gmats(ilat,1,1,1,1,:),beta)+fft_get_density(Gmats(ilat,2,2,1,1,:),beta))/Nlso
+       dens = dens+(fft_get_density(Gmats(ilat,1,1,2,2,:),beta)+fft_get_density(Gmats(ilat,2,2,2,2,:),beta))/Nlso
+       dens = dens+(fft_get_density(Gmats(ilat,1,1,3,3,:),beta)+fft_get_density(Gmats(ilat,2,2,3,3,:),beta))/Nlso
+     enddo
+     print*,"Dens = ",dens
     call finalize_MPI()
     STOP
   endif
@@ -187,6 +197,7 @@ program ed_ti_slab
      call ed_chi2_fitgf(Comm,Bath_ineq,Weiss_ineq,Hloc_ineq,ispin=1)
      call ed_chi2_fitgf(Comm,Bath_ineq,Weiss_ineq,Hloc_ineq,ispin=2)
      !
+     call ed_orb_symmetrize_bath(Bath_ineq,2,3)
      !
      !MIXING the current bath with the previous:
      if(iloop>1)Bath_ineq=wmixing*Bath_ineq + (1.d0-wmixing)*Bath_prev
@@ -198,25 +209,41 @@ program ed_ti_slab
        toconverge(ilat,2,:) = Weiss_ineq(ilat,2,2,2,2,:)
        toconverge(ilat,3,:) = Weiss_ineq(ilat,1,1,3,3,:)
        toconverge(ilat,4,:) = Weiss_ineq(ilat,2,2,3,3,:)
+       toconverge(ilat,5,:) = Weiss_ineq(ilat,1,1,1,1,:)
+       toconverge(ilat,6,:) = Weiss_ineq(ilat,2,2,1,1,:)
      enddo
      !
      converged = check_convergence(toconverge,dmft_error,nsuccess,nloop)
      !
      !Density evaluation and xmu search
-     dens = 0d0
-     do ilat=1,Nlat
-       dens = dens+(fft_get_density(Gmats(ilat,1,1,1,1,:),beta)+fft_get_density(Gmats(ilat,2,2,1,1,:),beta))/Nlso
-       dens = dens+(fft_get_density(Gmats(ilat,1,1,2,2,:),beta)+fft_get_density(Gmats(ilat,2,2,2,2,:),beta))/Nlso
-       dens = dens+(fft_get_density(Gmats(ilat,1,1,3,3,:),beta)+fft_get_density(Gmats(ilat,2,2,3,3,:),beta))/Nlso
-     enddo
-     if(nread/=0.d0)then
-        call ed_search_chemical_potential(xmu,dens,converged)
+     if(searchxmu) then
+       dens = 0d0
+       do ilat=1,Nlat
+         dens = dens+(fft_get_density(Gmats(ilat,1,1,1,1,:),beta)+fft_get_density(Gmats(ilat,2,2,1,1,:),beta))/Nlso
+         dens = dens+(fft_get_density(Gmats(ilat,1,1,2,2,:),beta)+fft_get_density(Gmats(ilat,2,2,2,2,:),beta))/Nlso
+         dens = dens+(fft_get_density(Gmats(ilat,1,1,3,3,:),beta)+fft_get_density(Gmats(ilat,2,2,3,3,:),beta))/Nlso
+       enddo
+       if(nread/=0.d0)then
+          call ed_search_chemical_potential(xmu,dens,converged)
+       endif
+     else
+       if(master)then
+         ep_location=find_x_coordinate(50)
+         ep_egap=gap_minimum(ep_location)
+         !if(ep_egap .lt. 0.001d0)then 
+          XMU=get_e(ep_egap)
+         !endif
+       endif
+       call bcast_MPI(comm,XMU)
+       print*,"XMU is ",XMU
      endif
      call end_loop
   enddo
 
 
-  call ed_get_sigma_realaxis(Sreal_ineq,Nineq)
+  !call read_sigma_real(Sreal)
+  !call dmft_gloc_realaxis(Hkr,Greal,Sreal)
+  !call dmft_print_gf_realaxis(Greal,"Gloc",iprint=1)
   
   do ilat=1,Nlat
      ineq = ilat2ineq(ilat)
@@ -395,7 +422,18 @@ contains
     gap=abs(Eval_sorted(2*Nlat+1)-Eval_sorted(2*Nlat))
   end function gap_minimum
 
-
+  function get_e(xcoord) result (gap)
+    real(8),dimension(3)                                        :: kpoint
+    complex(8),dimension(Nlat*Nspin*Norb,Nlat*Nspin*Norb)       :: Hrk,evec
+    real(8)                                                     :: gap,xcoord
+    complex(8),dimension(Nlat*Nso)                              :: Eval,eval_sorted
+    !
+    kpoint=[xcoord,0d0,0d0]
+    Hrk=ti_edge_model(kpoint,Nlat,Nso,.false.)
+    call eig(hrk,Eval,Evec)
+    Eval_sorted=lazy_sort(REAL(Eval))
+    gap=Eval_sorted(2*Nlat+1)
+  end function get_e
 
   !+---------------------------------------------------------------------------+!
   !PURPOSE: the ti-edge model hamiltonian
@@ -662,7 +700,7 @@ contains
        do ik=1,Nkpath
           ic=ic+1
           kpoint = kstart + (ik-1)*kdiff
-          h = hkr_model(kpoint,Nlat,Nso,pbc)
+          h = hkr_model(kpoint,Nlat,Nso,pbc) - xmu*Eye(Nlat*Nso)
           call eig(h,Eval,Evec)
           if(master)call eta(ic,Nktot)
           do io=1,Nlso
