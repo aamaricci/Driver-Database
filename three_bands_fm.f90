@@ -8,7 +8,7 @@ program ed_ti_slab
   integer                                       :: iloop
   integer                                       :: Nineq,Nlat,Nlso,Nso
   integer                                       :: ilat,iorb,ispin,ineq
-  logical                                       :: converged,PBC
+  logical                                       :: converged,converged_xmu,PBC
   
   !Bath:
   integer                                       :: Nb
@@ -39,15 +39,15 @@ program ed_ti_slab
   real(8)                                       :: GapOpeningField,NHfield_up,NHfield_dw
 
   !misc
+  real                                          :: XMU_OLD, XMU_REAL
   logical                                       :: tridiag,lrsym
   character(len=60)                             :: finput
   character(len=32)                             :: hkfile
-  real(8)                                       :: ep_energy,ep_location,ep_egap
   complex(8),dimension(:,:,:),allocatable       :: toconverge
 
   !mpi
   integer                                       :: comm,rank
-  logical                                       :: master,getbands,searchxmu
+  logical                                       :: master,getbands,Refine_xmu
 
 
   call init_MPI()
@@ -73,7 +73,7 @@ program ed_ti_slab
   call parse_input_variable(lrsym,"LRSYM",finput,default=.true.)
   call parse_input_variable(wmixing,"WMIXING",finput,default=0.5d0)
   call parse_input_variable(getbands,"GETBANDS",finput,default=.true.)
-  call parse_input_variable(searchxmu,"SEARCHXMU",finput,default=.false.)
+  call parse_input_variable(Refine_xmu,"Refine_xmu",finput,default=.false.)
   !
   call ed_read_input(trim(finput),comm)
 
@@ -102,6 +102,9 @@ program ed_ti_slab
   !set the global number of lattice sites equal to the number of layers along the y-axis
   Nlat = Ly
   Nineq= Ly
+  XMU_OLD=XMU
+  XMU_REAL=XMU
+  converged_xmu=.false.
   if(lrsym)then
      if(mod(Ly,2)/=0)stop "Wrong setup from input file: Ly%2 > 0 (odd number of sites)"
      Nineq=Ly/2
@@ -216,7 +219,7 @@ program ed_ti_slab
      converged = check_convergence(toconverge,dmft_error,nsuccess,nloop)
      !
      !Density evaluation and xmu search
-     if(searchxmu) then
+     if(.not. Refine_xmu) then
        dens = 0d0
        do ilat=1,Nlat
          dens = dens+(fft_get_density(Gmats(ilat,1,1,1,1,:),beta)+fft_get_density(Gmats(ilat,2,2,1,1,:),beta))/Nlso
@@ -226,17 +229,13 @@ program ed_ti_slab
        if(nread/=0.d0)then
           call ed_search_chemical_potential(xmu,dens,converged)
        endif
+       if(converged)refine_xmu=.true.
      else
-       if(master)then
-         ep_location=find_x_coordinate(50)
-         ep_egap=gap_minimum(ep_location)
-         !if(ep_egap .lt. 0.001d0)then 
-          XMU=get_e(ep_egap)
-         !endif
-       endif
-       call bcast_MPI(comm,XMU)
-       print*,"XMU is ",XMU
+       call tune_xmu(converged_xmu)
      endif
+     !
+     converged=converged.and.converged_xmu
+     !
      call end_loop
   enddo
 
@@ -432,7 +431,7 @@ contains
     Hrk=ti_edge_model(kpoint,Nlat,Nso,.false.)
     call eig(hrk,Eval,Evec)
     Eval_sorted=lazy_sort(REAL(Eval))
-    gap=Eval_sorted(2*Nlat+1)
+    gap=(Eval_sorted(2*Nlat+1)+Eval_sorted(2*Nlat))/2d0
   end function get_e
 
   !+---------------------------------------------------------------------------+!
@@ -700,7 +699,7 @@ contains
        do ik=1,Nkpath
           ic=ic+1
           kpoint = kstart + (ik-1)*kdiff
-          h = hkr_model(kpoint,Nlat,Nso,pbc) - xmu*Eye(Nlat*Nso)
+          h = hkr_model(kpoint,Nlat,Nso,pbc) - XMU_REAL*Eye(Nlat*Nso)
           call eig(h,Eval,Evec)
           if(master)call eta(ic,Nktot)
           do io=1,Nlso
@@ -801,8 +800,37 @@ contains
     endif
     
   end subroutine solve_nh_model
-
-
+  
+  
+  subroutine tune_xmu(xmu_converged)
+    real(8)          :: ep_energy,ep_location,ep_egap
+    logical          :: xmu_converged
+    !
+    !
+    if(master)then
+      ep_location=find_x_coordinate(50)
+      ep_egap=gap_minimum(ep_location)
+      ep_energy=get_e(ep_location)
+      !
+      if(abs(ep_energy-XMU)<0.001d0)then
+        xmu_converged=.true.
+      else
+        xmu_converged=.false.
+        XMU_REAL=ep_energy
+        XMU=(1d0-wmixing)*XMU_REAL+wmixing*XMU_OLD
+      endif
+      XMU_OLD=XMU
+    endif
+    call bcast_MPI(comm,XMU)
+    if(master)then
+      print*,"real XMU is ",XMU_REAL
+      print*,"mixd XMU is ",XMU
+      print*,"Converged = ",xmu_converged
+      print*,""
+    endif
+  end subroutine tune_xmu
+  
+  
   function lazy_sort(arr_in) result (arr)
     REAL(8), DIMENSION(:)                :: arr_in
     REAL(8), DIMENSION(:), allocatable   :: arr
