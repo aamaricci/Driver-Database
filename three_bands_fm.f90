@@ -288,7 +288,7 @@ contains
     if(allocated(tiHloc))deallocate(tiHloc)
     allocate(tiHloc(Nlso,Nlso))
     tiHloc = sum(Hkr(:,:,:),dim=3)/Lk
-    where(abs(dreal(tiHloc))<1.d-9)tiHloc=0d0
+    where(abs((tiHloc))<1.d-9)tiHloc=0d0
     !call TB_write_Hloc(tiHloc)
     !
   end subroutine build_hkr
@@ -812,7 +812,7 @@ contains
       ep_egap=gap_minimum(ep_location)
       ep_energy=get_e(ep_location)
       !
-      if(abs(ep_energy-XMU)<0.001d0)then
+      if(abs(ep_energy-XMU)<0.01d0)then
         xmu_converged=.true.
       else
         xmu_converged=.false.
@@ -822,6 +822,7 @@ contains
       XMU_OLD=XMU
     endif
     call bcast_MPI(comm,XMU)
+    call bcast_MPI(comm,xmu_converged)
     if(master)then
       print*,"real XMU is ",XMU_REAL
       print*,"mixd XMU is ",XMU
