@@ -34,7 +34,7 @@ FPPMPI =-fpp -D_
 endif
 ifeq ($(PLAT),gnu)
 FFLAG = -O2 -ffree-line-length-none
-DFLAG = -O2 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
+DFLAG = -O2 -p -g -fimplicit-none -Wsurprising -Wall -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
 OFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
 FPPSERIAL =-cpp -D_
 FPPMPI =-cpp -D_MPI	
