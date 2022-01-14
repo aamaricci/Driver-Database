@@ -47,7 +47,7 @@ program ed_ti_slab
 
   !mpi
   integer                                       :: comm,rank
-  logical                                       :: master,getbands,Refine_xmu
+  logical                                       :: master,getbands,Refine_xmu,tune_density
 
 
   call init_MPI()
@@ -74,6 +74,7 @@ program ed_ti_slab
   call parse_input_variable(wmixing,"WMIXING",finput,default=0.5d0)
   call parse_input_variable(getbands,"GETBANDS",finput,default=.true.)
   call parse_input_variable(Refine_xmu,"Refine_xmu",finput,default=.false.)
+  call parse_input_variable(Tune_density,"Tune_density",finput,default=.true.)
   !
   call ed_read_input(trim(finput),comm)
 
@@ -219,22 +220,23 @@ program ed_ti_slab
      converged = check_convergence(toconverge,dmft_error,nsuccess,nloop)
      !
      !Density evaluation and xmu search
-     if(.not. Refine_xmu) then
-       dens = 0d0
-       do ilat=1,Nlat
-         dens = dens+(fft_get_density(Gmats(ilat,1,1,1,1,:),beta)+fft_get_density(Gmats(ilat,2,2,1,1,:),beta))/Nlso
-         dens = dens+(fft_get_density(Gmats(ilat,1,1,2,2,:),beta)+fft_get_density(Gmats(ilat,2,2,2,2,:),beta))/Nlso
-         dens = dens+(fft_get_density(Gmats(ilat,1,1,3,3,:),beta)+fft_get_density(Gmats(ilat,2,2,3,3,:),beta))/Nlso
-       enddo
-       if(nread/=0.d0)then
-          call ed_search_chemical_potential(xmu,dens,converged)
+     if(Refine_xmu) then
+       if(tune_density) then
+         dens = 0d0
+         do ilat=1,Nlat
+           dens = dens+(fft_get_density(Gmats(ilat,1,1,1,1,:),beta)+fft_get_density(Gmats(ilat,2,2,1,1,:),beta))/Nlso
+           dens = dens+(fft_get_density(Gmats(ilat,1,1,2,2,:),beta)+fft_get_density(Gmats(ilat,2,2,2,2,:),beta))/Nlso
+           dens = dens+(fft_get_density(Gmats(ilat,1,1,3,3,:),beta)+fft_get_density(Gmats(ilat,2,2,3,3,:),beta))/Nlso
+         enddo
+         if(nread/=0.d0)then
+            call ed_search_chemical_potential(xmu,dens,converged)
+         endif
+         if(converged)tune_density=.false.
+       else
+         call tune_xmu(converged_xmu)
        endif
-       if(converged)refine_xmu=.true.
-     else
-       call tune_xmu(converged_xmu)
+       converged=converged.and.converged_xmu
      endif
-     !
-     converged=converged.and.converged_xmu
      !
      call end_loop
   enddo
