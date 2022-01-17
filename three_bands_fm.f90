@@ -181,7 +181,7 @@ program ed_ti_slab
      call start_loop(iloop,nloop,"DMFT-loop")   
      !
      S0=zero
-     if(iloop>1 .and. abs(dummymag) .lt. 1d-8)dummymag=dummymag/dummymag_rescale
+     if(iloop>1 .and. abs(dummymag) .gt. 1d-6)dummymag=dummymag/dummymag_rescale
      if(master)print*,"Dummymag = ",dummymag
      !
      call build_hkr(trim(hkfile))
