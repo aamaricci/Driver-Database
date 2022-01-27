@@ -29,6 +29,7 @@ program ss_DFT
   integer,allocatable,dimension(:)        :: ineq_sites
   integer,dimension(3)                    :: Nin_w90
   character(len=5),dimension(3)           :: OrderIn_w90
+  type(rgb_color),allocatable,dimension(:):: colors
 
 #ifdef _MPI
   call init_MPI
@@ -67,6 +68,25 @@ program ss_DFT
   inquire(file=reg(kpathfile),exist=bool_kpath)
   inquire(file=reg(ineqfile),exist=bool_ineq)
   inquire(file=reg(orderfile),exist=bool_order)
+  if(.not.bool_order)stop "order.conf file does not exist. STOP" 
+
+
+  !Solve for the renormalized bands:
+  if(BandsFlag)then
+     allocate(colors(Nlso))
+     select case(Nlso)
+     case default
+        colors = black
+     case(2)
+        colors = [blue,red]
+     case(3)
+        colors = [blue,red,green]
+     case(4)
+        colors = [blue,red,green,black]
+     case(5)
+        colors = [blue,red,green,black,magenta]
+     end select
+  end if
 
 
   !Get/Set Wannier ordering:
@@ -75,10 +95,6 @@ program ss_DFT
      read(unit,*)Nin_w90(1),Nin_w90(2),Nin_w90(3)
      read(unit,*)OrderIn_w90(1),OrderIn_w90(2),OrderIn_w90(3)
      close(unit)
-  else
-     write(*,"(A)")"Using default order for W90 input: [Nspin, Norb, Nlat]"
-     Nin_w90    =[Nspin,Norb,Nlat]
-     OrderIn_w90=[character(len=5)::"Nspin","Norb","Nlat"]
   endif
 
   !Setup the path in the BZ.
@@ -120,6 +136,7 @@ program ss_DFT
   else
      write(*,"(A)")"Using default Ineq_sites list: all equivalent to 1"
      ineq_sites = 1
+     call sleep(1)
   endif
 
 
@@ -155,11 +172,22 @@ program ss_DFT
      allocate(Hk(Nlso,Nlso,Nktot))
      call start_timer
      !Build H(k) and re-order it to the default DMFT_tools order:
+     !
      call TB_build_model(Hk,Nlso,Nkvec)
      Hk = TB_reshape_array(Hk,Nin=Nin_w90,OrderIn=OrderIn_w90,&
-          OrderOut=[character(len=5)::"Norb","Nspin","Nlat"])
+          OrderOut=[character(len=5)::"Norb","Nlat","Nspin"])
+     !
      call TB_write_hk(Hk,reg(hkfile),Nlat,Nspin,Norb,Nkvec)
      call stop_timer("TB_build_model")
+  endif
+
+  !Solve for the renormalized bands:
+  if(BandsFlag)then
+     call start_timer
+     if(master)call TB_Solve_model(TB_w90_model,Nlso,kpath,Nkpath,&
+          colors_name=colors,points_name=points_name,& 
+          file="Bands_DFT",iproject=.true.)
+     call stop_timer("get Bands")
   endif
 
 
@@ -173,16 +201,14 @@ program ss_DFT
 
 
   !########################################
-  !SOLVE SS: explicitly set User Order, so SS re-organize H(k) according to its needs.
-  !note: we could have either i) re-order H(k) directly in SS order (it requires the user
-  !to know it) or ii) reorder H(k) externally using again TB_reshape_array.
+  !SOLVE SS
   !SS order is: Norb,Nlat,Nspin
   call start_timer
-  call ss_solve(Hk,ineq_sites=ineq_sites,UserOrder=[character(len=5)::"Norb","Nspin","Nlat"])
+  call ss_solve(Hk,ineq_sites=ineq_sites)
   call stop_timer("SS SOLUTION")
   call ss_get_zeta(zeta)
   call ss_get_Self(self)
-  call TB_w90_Zeta(zeta)
+  call TB_w90_Zeta(sqrt(zeta))
   call TB_w90_Self(diag(self))
   if(master)call save_array("renorm.save",[zeta,self])
   !########################################
