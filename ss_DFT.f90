@@ -173,13 +173,18 @@ program ss_DFT
      call start_timer
      !Build H(k) and re-order it to the default DMFT_tools order:
      !
-     call TB_build_model(Hk,Nlso,Nkvec)
-     Hk = TB_reshape_array(Hk,Nin=Nin_w90,OrderIn=OrderIn_w90,&
+     call TB_build_model(Hk,Nlso,[1,1,1])
+     call write_hk_array(Hk,"unorderHk.conf",Nlat,Nspin,Norb,[1,1,1])
+     
+     Hk = reorder_Hk(Hk,Nin=Nin_w90,OrderIn=OrderIn_w90,&
           OrderOut=[character(len=5)::"Norb","Nlat","Nspin"])
      !
-     call TB_write_hk(Hk,reg(hkfile),Nlat,Nspin,Norb,Nkvec)
+     call write_hk_array(Hk,reg(hkfile),Nlat,Nspin,Norb,[1,1,1])
+
+     ! call TB_write_hk(Hk,reg(hkfile),Nlat,Nspin,Norb,[1,1,1])
      call stop_timer("TB_build_model")
   endif
+  stop
 
   !Solve for the renormalized bands:
   if(BandsFlag)then
@@ -189,6 +194,8 @@ program ss_DFT
           file="Bands_DFT",iproject=.true.)
      call stop_timer("get Bands")
   endif
+
+  stop "Recall to fix Nkvec here!!!"
 
 
   write(*,*)"Using Nk_total="//str(size(Hk,3))
@@ -261,5 +268,174 @@ program ss_DFT
 #ifdef _MPI
   call finalize_MPI()
 #endif
+
+
+
+contains
+
+
+  subroutine write_hk_array(Hk,file,Nlat,Nspin,Norb,Nkvec)
+    character(len=*)                                                     :: file
+    integer                                                              :: Nlat,Nspin,Norb,Nlso
+    integer                                                              :: Nkvec(:)
+    real(8),dimension(product(Nkvec),size(Nkvec))                        :: kgrid ![Nk][Ndim]
+    real(8),dimension(3)                                                 :: kvec
+    integer                                                              :: Nktot,unit
+    integer                                                              :: i,ik,io,jo
+    complex(8),dimension(Nlat*Nspin*Norb,Nlat*Nspin*Norb,product(Nkvec)) :: Hk
+    logical :: mpi_master
+    !
+    mpi_master=.true.
+    !
+    call TB_build_kgrid(Nkvec,kgrid)
+    !
+    Nktot  = product(Nkvec)!==size(Hk,3)
+    Nlso   = Nlat*Nspin*Norb
+    !
+    if(mpi_master)then
+       open(free_unit(unit),file=reg(file))
+       write(unit,'(10(A10,1x))')str(Nktot),str(Nlat),str(Nspin),str(Norb)
+       write(unit,'(1A1,3(A12,1x))')"#",(reg(txtfy(Nkvec(ik))),ik=1,size(Nkvec))
+       do ik=1,Nktot
+          kvec=0d0 ; kvec(:size(Nkvec)) = kgrid(ik,:size(Nkvec))
+          write(unit,"(3(F15.9,1x))")(kvec(i),i=1,3) 
+          do io=1,Nlso
+             write(unit,"(1000(F5.2,1x))")(dreal(Hk(io,jo,ik)),jo=1,Nlso)
+          enddo
+       enddo
+       close(unit)
+    endif
+  end subroutine write_hk_array
+
+
+
+
+  function reorder_hk(Huser,Nin,OrderIn,OrderOut) result(Hss)
+    complex(8),dimension(:,:,:)                                     :: Huser
+    integer,dimension(3)                                            :: Nin   !In sequence of Nlat,Nspin,Norb as integers
+    character(len=*),dimension(3)                                   :: OrderIn  !in  sequence of Nlat,Nspin,Norb as strings
+    !
+    complex(8),dimension(size(Huser,1),size(Huser,2),size(Huser,3)) :: Hss
+    integer,dimension(3)                                            :: Ivec,Jvec
+    integer,dimension(3)                                            :: IndexOut
+    integer,dimension(3)                                            :: Nout
+    integer                                                         :: iss,jss,iuser,juser,i,Nlso,Nk
+    character(len=*),dimension(3),optional                          :: OrderOut !out sequence of Nlat,Nspin,Norb as strings
+    character(len=5),dimension(3)                                   :: OrderOut_ !out sequence of Nlat,Nspin,Norb as strings
+    !
+    OrderOut_=[character(len=5)::"Norb","Nspin","Nlat"];
+    if(present(OrderOut))then
+       do i=1,3
+          OrderOut_(i) = trim(OrderOut(i))
+       enddo
+    endif
+    !   
+    Nlso = size(Huser,1)
+    Nk   = size(Huser,3)
+    call assert_shape(Huser,[Nlso,Nlso,Nk],"tb_reorder_hk_d","Huser")
+    !
+    !Construct an index array InderOut corresponding to the Out ordering.
+    !This is a permutation of the In ordering taken as [1,2,3].
+    !For each entry in OrderIn we look for the position of the
+    !corresponding entry in OrderOut using tb_findloc.
+    !If 0 entries exist, corresponding components are not found. stop. 
+    do i=1,3     
+       IndexOut(i:i)=findloc_char(OrderIn,OrderOut_(i))
+    enddo
+    if(any(IndexOut==0))then
+       print*,"TB_Reorder_vec ERROR: wrong entry in IndexOut at: ",findloc_int(IndexOut,0)
+       stop
+    endif
+    write(*,*)IndexOut
+    !
+    !From IndexOut we can re-order the dimensions array to get the User dimensions array 
+    Nout=indx_reorder(Nin,IndexOut)
+    !    
+    if(any(IndexOut/=[1,2,3]))then
+       do iuser=1,Nlso
+          Ivec  = i2indices(iuser,Nin)           !Map iss to Ivec:(ilat,iorb,ispin) by IN ordering
+          Jvec  = indx_reorder(Ivec,IndexOut)  !Reorder according to Out ordering
+          iss   = indices2i(Jvec,Nout)         !Map back new Jvec to total index iuser by OUT ordering 
+          do juser=1,Nlso
+             Ivec  = i2indices(juser,Nin)
+             Jvec  = indx_reorder(Ivec,IndexOut)
+             jss = indices2i(Jvec,Nout)
+             !
+              write(*,*)iuser,juser,"->",iss,jss
+             Hss(iss,jss,:) = Huser(iuser,juser,:)
+          enddo
+       enddo
+    else
+       Hss = Huser
+    endif
+    return
+  end function reorder_hk
+
+
+  function indx_reorder(Ain,Index)  result(Aout)
+    integer,dimension(:)         :: Ain
+    integer,dimension(size(Ain)) :: Index
+    integer,dimension(size(Ain)) :: Aout
+    integer                        :: i
+    do i=1,size(Ain)
+       Aout(i) = Ain(Index(i))!Aout(Index(i)) = Ain(i)
+    enddo
+  end function indx_reorder
+
+
+  function indices2i(ivec,Nvec) result(istate)
+    integer,dimension(:)          :: ivec
+    integer,dimension(size(ivec)) :: Nvec
+    integer                       :: istate,i
+    istate=ivec(1)
+    do i=2,size(ivec)
+       istate = istate + (ivec(i)-1)*product(Nvec(1:i-1))
+    enddo
+  end function indices2i
+
+  function i2indices(istate,Nvec) result(ivec)
+    integer                       :: istate
+    integer,dimension(:)          :: Nvec
+    integer,dimension(size(Nvec)) :: Ivec
+    integer                       :: i,count,N
+    count = istate-1
+    N     = size(Nvec)
+    do i=1,N
+       Ivec(i) = mod(count,Nvec(i))+1
+       count   = count/Nvec(i)
+    enddo
+  end function i2indices
+
+
+
+  function findloc_char(array,val) result(pos)
+    character(len=*),dimension(:) :: array
+    character(len=*)              :: val
+    integer                       :: pos,i
+    pos=0
+    do i=1,size(array)
+       if(array(i)==val)then
+          pos = i
+          exit
+       endif
+    enddo
+    return
+  end function findloc_char
+
+  function findloc_int(array,val) result(pos)
+    integer,dimension(:) :: array
+    integer              :: val
+    integer              :: pos,i
+    pos=0
+    do i=1,size(array)
+       if(array(i)==val)then
+          pos = i
+          exit
+       endif
+    enddo
+    return
+  end function findloc_int
+
+
 
 end program ss_DFT
