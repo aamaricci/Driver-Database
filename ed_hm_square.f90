@@ -83,7 +83,7 @@ program ed_hm_square
   Nb=ed_get_bath_dimension()
   allocate(bath(Nb))
   allocate(Bath_(Nb))
-  call ed_init_solver(comm,bath,Hloc)
+  call ed_init_solver(comm,bath)
 
 
 
@@ -94,7 +94,7 @@ program ed_hm_square
      call start_loop(iloop,nloop,"DMFT-loop")
 
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-     call ed_solve(comm,bath) 
+     call ed_solve(comm,bath,Hloc) 
      call ed_get_sigma_matsubara(Smats)
      call ed_get_sigma_realaxis(Sreal)
      call ed_get_dens(dens)
