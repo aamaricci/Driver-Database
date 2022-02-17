@@ -20,8 +20,10 @@ program ed_hm_square
   complex(8),allocatable,dimension(:,:,:,:,:)   :: Weiss,Weiss_
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Gkmats
   complex(8),allocatable,dimension(:)           :: Gtest
+  !Luttinger invariants:
+  real(8),allocatable                           :: luttinger(:)
   !
-  character(len=16)                             :: finput
+  character(len=16)                             :: finput,foutput
   complex(8),allocatable                        :: Hk(:,:,:)
   real(8),allocatable                           :: Wt(:)
   !
@@ -29,13 +31,11 @@ program ed_hm_square
   logical                                       :: master
   logical                                       :: mixG0,symOrbs
 
-  call init_MPI()
-  comm = MPI_COMM_WORLD
-  call StartMsg_MPI(comm)
+  call init_MPI(comm,.true.)
   rank = get_Rank_MPI(comm)
   master = get_Master_MPI(comm)
 
-  call parse_cmd_variable(finput,"FINPUT",default='inputED.in')
+  call parse_cmd_variable(finput,"FINPUT",default='inputHM.in')
   call parse_input_variable(wmixing,"wmixing",finput,default=0.5d0,comment="Mixing bath parameter")
   call parse_input_variable(ts,"TS",finput,default=[0.25d0,0d0,0d0,0d0,0d0],comment="hopping parameter")
   call parse_input_variable(Dband,"Dband",finput,default=[0d0,0d0,0d0,0d0,0d0],comment="cystal field splittig (bands shift)")
@@ -56,7 +56,7 @@ program ed_hm_square
   if(Nspin/=1.OR.Norb>5)stop "Wrong setup from input file: Nspin/=1 OR Norb>5"
   Nso=Nspin*Norb
 
-  !Allocate Weiss Field:
+  !Allocate Fields:
   allocate(Weiss(Nspin,Nspin,Norb,Norb,Lmats),Weiss_(Nspin,Nspin,Norb,Norb,Lmats))
   allocate(Gmats(Nspin,Nspin,Norb,Norb,Lmats),Greal(Nspin,Nspin,Norb,Norb,Lreal))
   allocate(Smats(Nspin,Nspin,Norb,Norb,Lmats),Sreal(Nspin,Nspin,Norb,Norb,Lreal))
@@ -79,11 +79,11 @@ program ed_hm_square
                              Norb=Norb,&
                              Nkvec=[Nx,Nx])
 
-  !setup solver
+  !Setup solver
   Nb=ed_get_bath_dimension()
   allocate(bath(Nb))
   allocate(Bath_(Nb))
-  call ed_init_solver(comm,bath,Hloc)
+  call ed_init_solver(comm,bath)
 
 
 
@@ -94,17 +94,13 @@ program ed_hm_square
      call start_loop(iloop,nloop,"DMFT-loop")
 
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-     call ed_solve(comm,bath) 
+     call ed_solve(comm,bath,Hloc) 
      call ed_get_sigma_matsubara(Smats)
      call ed_get_sigma_realaxis(Sreal)
-     call ed_get_dens(dens)
 
-     !Compute the local gfs:
+     !Compute the local gfs on the imaginary axis:
      call dmft_gloc_matsubara(Hk,Gmats,Smats)
-     call dmft_gloc_realaxis(Hk,Greal,Sreal)
-     !Print the local gfs:
      call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
-     call dmft_print_gf_realaxis(Greal,"Gloc",iprint=1)
 
      !Get the Weiss field/Delta function to be fitted
      call dmft_self_consistency(Gmats,Smats,Weiss,Hloc,SCtype=cg_scheme)
@@ -128,13 +124,14 @@ program ed_hm_square
         if(iloop>1)Bath = wmixing*Bath + (1.d0-wmixing)*Bath_
         Bath_=Bath
      endif
-     
+
      !Check convergence (if required change chemical potential)     
      Gtest=zero
      do iorb=1,Norb
         Gtest=Gtest+Weiss(1,1,iorb,iorb,:)/Norb
      enddo
      converged = check_convergence(Gtest,dmft_error,nsuccess,nloop,reset=.false.)
+     call ed_get_dens(dens)
      if(nread/=0d0)call ed_search_variable(xmu,sum(dens),converged)
 
      call end_loop
@@ -143,10 +140,17 @@ program ed_hm_square
   !Get kinetic energy:
   call dmft_kinetic_energy(Hk,Smats)
 
-!  allocate(Gkmats(Lk,Nspin,Nspin,Norb,Norb,Lmats))
-!  do ik=1,Lk
-!     call dmft_gk_matsubara(Hk(:,:,ik),Gkmats(ik,:,:,:,:,:),Smats)
-!  enddo
+  !Compute the local gfs on the real axis:
+  call dmft_gloc_realaxis(Hk,Greal,Sreal)
+  call dmft_print_gf_realaxis(Greal,"Gloc",iprint=1)
+
+  !Compute the Luttinger invariants:
+  if(master)then
+     allocate(luttinger(Norb))
+     call luttinger_integral(luttinger,Greal,Sreal)
+     call print_luttinger(luttinger)
+     deallocate(luttinger)
+  endif
 
   call finalize_MPI()
 
@@ -168,8 +172,68 @@ contains
     enddo
   end function hk_model
 
+  !+---------------------------------------------------------------------------+
+  !PURPOSE : Compute the Luttinger integral IL = 1/π * |Im(∫dw(Gloc*dSloc/dw)|
+  !          > Cfr. J. Phys. Cond. Mat. 28, 02560 and PRB B 102, 081110(R)
+  ! NB) At ph-symmetry IL should be zero, but only if the T->0 limit is taken 
+  !     before the mu->0 limit, and here we apparently invert the order of the 
+  !     limits because of the numerical discretization on the imaginary axis. 
+  !     > Look at [53] (report of a private communication) in the Phys. Rev. B
+  !+---------------------------------------------------------------------------+
+  subroutine luttinger_integral(IL,Gloc,Sloc)
+    real(8),allocatable,dimension(:),intent(out)            :: IL
+    complex(8),allocatable,dimension(:,:,:,:,:),intent(in)  :: Gloc,Sloc
+    real(8),dimension(Lreal)                                :: dSreal,dSimag,integrand
+    integer                                                 :: iorb,ispin
+    !
+    if(.not.allocated(IL)) allocate(IL(Norb))
+    !
+    do iorb=1,Norb
+        do ispin=1,Nspin !Nspin is constrained to be equal to 1 above.
+            dSreal(:) = deriv(dreal(Sloc(ispin,ispin,iorb,iorb,:)),1d0) !No need to include 1/dw if
+            dSimag(:) = deriv(dimag(Sloc(ispin,ispin,iorb,iorb,:)),1d0) !we are integrating in dw...
+            integrand = dimag(Gloc(ispin,ispin,iorb,iorb,:)*cmplx(dSreal,dSimag))
+            IL(iorb) = sum(integrand)       !Naive Riemann-sum (no need of trapezoidal-sums with typical Lreal)
+            IL(iorb) = 1/pi * abs(IL(iorb)) !The theoretical sign is determined by sign(mu)...
+        enddo
+    enddo
+    !
+  end subroutine luttinger_integral
+
+  !+---------------------------------------------------------------------------+
+  !PURPOSE : print to file (and stdout) the Luttinger invariants IL(Norb)
+  !+---------------------------------------------------------------------------+
+  subroutine print_luttinger(IL)
+    real(8),allocatable,dimension(:),intent(in)  :: IL
+    integer                                      :: iorb
+    integer                                      :: unit
+    !
+    if(ed_verbose>0)then
+       write(LOGfile,*) " "
+       write(LOGfile,*) "Luttinger invariants:"
+    endif
+    !
+    do iorb=1,Norb
+       if(ed_verbose>0) write(LOGfile,*) iorb, IL(iorb)
+       unit = free_unit()
+       foutput = "luttinger_l"//str(iorb)//".dat"
+       open(unit,file=foutput,action="write",position="rewind",status='unknown')
+       write(unit,*) iorb, IL(iorb)
+       close(unit)
+    enddo
+    !
+    if(ed_verbose>0)then
+       write(LOGfile,*) "          iorb        IL"
+       write(LOGfile,*) " "
+    endif
+    !
+  end subroutine print_luttinger
+
+
 
 end program ed_hm_square
+
+
 
 
 
