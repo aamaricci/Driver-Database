@@ -5,12 +5,14 @@ program chain1d
   USE DMFT_TOOLS
   USE MPI
   implicit none
-  character(len=16)                  :: finput
-  real(8)                            :: ts,t0,gamma,kx,ek,Icurrent
-  integer                            :: N,N1,i
-  logical                            :: gflag,pbc
-  integer                            :: comm,rank
-  logical                            :: master  
+  character(len=16)   :: finput
+  real(8)             :: ts,t0,gamma,kx,ek,Icurrent,beta
+  integer             :: N,N1,i,Tlen,it
+  real(8),allocatable :: temperature_list(:)
+  integer,allocatable :: Tord(:)
+  logical             :: gflag,pbc,tbool
+  integer             :: comm,rank
+  logical             :: master  
   !
   call init_MPI()
   comm = MPI_COMM_WORLD
@@ -24,6 +26,7 @@ program chain1d
   call parse_input_variable(pbc,"PBC",finput,default=.true.,comment="T: PBC, F: OBC")
   call ed_read_input(trim(finput))
   !
+  beta = 1d0/temp
   call add_ctrl_var(beta,"BETA")
   call add_ctrl_var(Norb,"NORB")
   call add_ctrl_var(Nspin,"Nspin")
@@ -36,18 +39,43 @@ program chain1d
   if(any(Nsites(1:Norb)==0))stop "This driver is for 1d chain problem only: Nsites=[1,N]"
 
   N  = Nsites(1)
-  
-  Icurrent=0d0
-  do i=1,N
-     kx = i*pi2/N
-     ek = -2*abs(ts)*cos(kx+gamma)
-     Icurrent = Icurrent + 2*abs(ts)*sin(kx+gamma)*fermi(ek,beta)/N*pi2
-  enddo
-  open(free_unit(i),file="drude_u0.nint")
-  write(i,*)Icurrent,gamma,Icurrent/gamma
-  close(i)
-  !
 
+  inquire(file="temperature.restart",exist=Tbool)
+  if(Tbool)then
+     write(LOGfile,"(A)")"Reading temperature list from file temperature.restart"
+     Tlen = file_length("temperature.restart")
+     open(100,file="temperature.restart")
+     allocate(temperature_list(Tlen),Tord(Tlen))
+     do i=1,Tlen
+        read(100,*)temperature_list(i)
+     enddo
+     close(100)
+     call sort(temperature_list,Tord)                !sort from smallest to largest
+     temperature_list = temperature_list(Tlen:1:-1) !invert order
+  else
+     Tlen=1
+     allocate(temperature_list(Tlen))
+     temperature_list = temp
+  endif
+
+
+  do N=6,16
+     open(100,file="drude_u0_N"//str(N)//".nint")
+     do it=1,Tlen
+        beta = 1d0/temperature_list(it)
+        Icurrent=0d0
+        do i=1,N
+           kx = (i-1)*pi2/N
+           ek = -2*ts*cos(kx+gamma)
+           Icurrent = Icurrent - 2*ts*sin(kx+gamma)*fermi(ek,beta)/N*pi2
+        enddo
+        write(100,*)temperature_list(it),Icurrent/gamma,Icurrent,gamma
+     enddo
+     close(100)
+  enddo
+
+
+  N  = Nsites(1)
   !1d chain with PBC
   call ed_Hij_init(Nsites(1:Norb))
   call ed_Hij_add_link(1,2,1,1,1,one*ts)
@@ -69,7 +97,7 @@ program chain1d
   call finalize_MPI()
   !
 
-  
+
 end program chain1d
 
 

@@ -179,15 +179,6 @@ program ss_DFT
      call stop_timer("TB_build_model")
   endif
 
-  !Solve for the renormalized bands:
-  if(BandsFlag)then
-     call start_timer
-     if(master)call TB_Solve_model(TB_w90_model,Nlso,kpath,Nkpath,&
-          colors_name=colors,points_name=points_name,& 
-          file="Bands_DFT",iproject=.true.)
-     call stop_timer("get Bands")
-  endif
-
 
   write(*,*)"Using Nk_total="//str(size(Hk,3))
   allocate(Hloc(Nlso,Nlso))
@@ -196,63 +187,27 @@ program ss_DFT
   if(master)call TB_write_Hloc(Hloc,"w90Hloc.dat")
 
 
-
-
   !########################################
   !SOLVE SS
   !SS order is: Norb,Nlat,Nspin
   call start_timer
   call ss_solve(Hk,ineq_sites=ineq_sites)
   call stop_timer("SS SOLUTION")
-  call ss_get_zeta(zeta)
-  call ss_get_Self(self)
-  call TB_w90_Zeta(sqrt(zeta))
-  call TB_w90_Self(diag(self))
-  if(master)call save_array("renorm.save",[zeta,self])
   !########################################
-
-
 
 
   !Solve for the renormalized bands:
   if(BandsFlag)then
      call start_timer
-     if(master)call TB_Solve_model(TB_w90_model,Nlso,kpath,Nkpath,&
+     if(master)call TB_Solve_model(ss_Hk_model,Nlso,kpath,Nkpath,&
           colors_name=[black,red,green,blue,magenta,black,red,green,blue,magenta],&
           points_name=points_name,& 
           file="zBands_ssDFT",iproject=.true.)
      call stop_timer("SS get zBands")
   endif
 
-  !Store the renormalized Hamiltonian:
-  if(zHkflag)then
-     call start_timer
-     call TB_build_model(Hk,Nlso,Nkvec)
-     Hk = TB_reshape_array(Hk,Nin=Nin_w90,OrderIn=OrderIn_w90,&
-          OrderOut=[character(len=5)::"Norb","Nspin","Nlat"])
-     call TB_write_hk("z"//reg(hkfile),Nkvec)
-     call stop_timer("SS get zHk")
-  endif
 
 
-
-  if(FSflag)then
-     inquire(file='renorm.save',exist=bool)
-     if(bool)then
-        allocate(tmp(2*Nlat*Nspin*Norb))
-        call read_array("zeta_self.restart",tmp)
-        zeta = tmp(:Nlat*Nspin*Norb)
-        self = tmp(Nlat*Nspin*Norb+1:)
-        call TB_w90_Zeta(zeta)
-        call TB_w90_Self(diag(self))
-     endif
-     call TB_FSurface(Nlso,0d0,Nkvec(1:2),&
-          colors_name=[black,red,red,green,blue],&
-          file='FS_ssDFT',cutoff=1d-1,Niter=3,Nsize=2)
-  endif
-
-
-  deallocate(zeta,self)
   call TB_w90_delete()
 
 
@@ -262,6 +217,26 @@ program ss_DFT
 
 
 
+
+contains
+
+
+  function ss_Hk_model(kvec,N) result(Hk)
+    real(8),dimension(:)      :: kvec
+    integer                   :: N
+    complex(8),dimension(N,N) :: Hloc,Hk
+    !< Get Hloc from W90:
+    call TB_w90_Hloc(Hloc)
+    !< Build H(k) from W90:
+    Hk = TB_w90_model(kvec,N)
+    !< Reorder H(k) according to W90-SS orders
+    Hk  = TB_reorder_array(Hk,Nin=Nin_w90,OrderIn=OrderIn_w90,&
+         OrderOut=[character(len=5)::"Norb","Nlat","Nspin"])
+    Hloc= TB_reorder_array(Hloc,Nin=Nin_w90,OrderIn=OrderIn_w90,&
+         OrderOut=[character(len=5)::"Norb","Nlat","Nspin"])
+    !< Build effective fermionic H*(k) 
+    call ss_get_ssHk(Hk,Hloc)
+  end function ss_Hk_model
 
 
 
@@ -277,6 +252,24 @@ end program ss_DFT
 
 
 
+
+
+
+
+! if(FSflag)then
+!    inquire(file='renorm.save',exist=bool)
+!    if(bool)then
+!       allocate(tmp(2*Nlat*Nspin*Norb))
+!       call read_array("zeta_self.restart",tmp)
+!       zeta = tmp(:Nlat*Nspin*Norb)
+!       self = tmp(Nlat*Nspin*Norb+1:)
+!       call TB_w90_Zeta(zeta)
+!       call TB_w90_Self(diag(self))
+!    endif
+!    call TB_FSurface(Nlso,0d0,Nkvec(1:2),&
+!         colors_name=[black,red,red,green,blue],&
+!         file='FS_ssDFT',cutoff=1d-1,Niter=3,Nsize=2)
+! endif
 
 
 

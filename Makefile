@@ -3,8 +3,8 @@
 #$ COMPILER: supported compilers are ifort, gnu >v4.7 or use mpif90
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default if $HOME/.bin in the PATH)
-EXE=ss_DFT
-#1d_Kondo_chain.f90
+#EXE=ss_DFT
+EXE=1d_Kondo_chain.f90
 #solveBHZ_lattice.f90
 FC=mpif90
 PLAT=gnu
@@ -20,11 +20,11 @@ endef
 
 
 
-
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
 GLOB_INC:=$(shell pkg-config --cflags edlat slave_spins dmft_tools scifor)
 GLOB_LIB:=$(shell pkg-config --libs   edlat slave_spins dmft_tools scifor)
+
 
 ifeq ($(PLAT),intel)
 FFLAG=-O2 -ftz
