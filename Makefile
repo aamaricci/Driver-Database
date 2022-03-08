@@ -22,8 +22,8 @@ endef
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-GLOB_INC:=$(shell pkg-config --cflags edlat slave_spins dmft_tools scifor)
-GLOB_LIB:=$(shell pkg-config --libs   edlat slave_spins dmft_tools scifor)
+GLOB_INC:=$(shell pkg-config --cflags edlat dmft_tools scifor)
+GLOB_LIB:=$(shell pkg-config --libs   edlat dmft_tools scifor)
 
 
 ifeq ($(PLAT),intel)
@@ -46,7 +46,7 @@ endif
 REV=$(shell git rev-parse HEAD)
 VER = 'character(len=41),parameter :: revision = "$(REV)"' > revision.inc
 
-EXEC=$(shell basename -s .f90 ${EXE})
+EXEC=$(shell basename ${EXE} .f90)
 
 ##$ Extends the implicit support of the Makefile to .f90 files
 .SUFFIXES: .f90
