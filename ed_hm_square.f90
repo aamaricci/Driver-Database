@@ -28,6 +28,8 @@ program ed_hm_square
   integer                                       :: comm,rank
   logical                                       :: master
   logical                                       :: mixG0,symOrbs
+  !
+  real(8)                                       :: Vel
 
   call init_MPI()
   comm = MPI_COMM_WORLD
@@ -42,6 +44,7 @@ program ed_hm_square
   call parse_input_variable(Nx,"Nx",finput,default=100,comment="Number of kx point for 2d BZ integration")
   call parse_input_variable(mixG0,"mixG0",finput,default=.false.)
   call parse_input_variable(symOrbs,"symOrbs",finput,default=.false.)
+  call parse_input_variable(Vel,"Vel",finput,default=0d0,comment="hopping parameter")
   !
   call ed_read_input(trim(finput),comm)
   !
@@ -73,6 +76,7 @@ program ed_hm_square
   Hloc   = zero
   Hloc(1,1,:,:) = sum(Hk,dim=3)/Lk
   where(abs(dreal(Hloc))<1.d-6) Hloc=0d0
+
   
   if(master)call TB_write_hk(Hk(:,:,:),"Hk2d.dat",Nlat=1,&
                              Nspin=1,&
@@ -83,7 +87,7 @@ program ed_hm_square
   Nb=ed_get_bath_dimension()
   allocate(bath(Nb))
   allocate(Bath_(Nb))
-  call ed_init_solver(comm,bath,Hloc)
+  call ed_init_solver(comm,bath)
 
 
 
@@ -94,7 +98,7 @@ program ed_hm_square
      call start_loop(iloop,nloop,"DMFT-loop")
 
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-     call ed_solve(comm,bath) 
+     call ed_solve(comm,bath,Hloc) 
      call ed_get_sigma_matsubara(Smats)
      call ed_get_sigma_realaxis(Sreal)
      call ed_get_dens(dens)

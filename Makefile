@@ -4,7 +4,8 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default if $HOME/.bin in the PATH)
 EXE=ed_bilayer_hc
-#EXE=ed_ehm_bilayer_square
+#EXE=ed_bilayer_square
+#EXE=ed_hm_square
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
