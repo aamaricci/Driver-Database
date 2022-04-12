@@ -22,8 +22,8 @@ endef
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-GLOB_INC:=$(shell pkg-config --cflags edlat dmft_tools scifor)
-GLOB_LIB:=$(shell pkg-config --libs   edlat dmft_tools scifor)
+GLOB_INC:=$(shell pkg-config --cflags dmft_ed dmft_tools scifor)
+GLOB_LIB:=$(shell pkg-config --libs   dmft_ed dmft_tools scifor)
 
 
 ifeq ($(PLAT),intel)
