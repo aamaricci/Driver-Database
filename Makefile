@@ -22,8 +22,8 @@ LIB_SS=slave_spins
 #########################################################################
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-GLOB_INC:=$(shell pkg-config --cflags dmft_tools scifor)
-GLOB_LIB:=$(shell pkg-config --libs   dmft_tools scifor)
+GLOB_INC=
+GLOB_LIB=
 
 ifdef LIB_ED
 GLOB_INC+=$(shell pkg-config --cflags ${LIB_ED})
@@ -35,7 +35,8 @@ GLOB_INC+=$(shell pkg-config --cflags ${LIB_SS})
 GLOB_LIB+=$(shell pkg-config --libs ${LIB_SS})
 endif
 
-
+GLOB_INC+=$(shell pkg-config --cflags dmft_tools scifor)
+GLOB_LIB+=$(shell pkg-config --libs   dmft_tools scifor)
 
 
 
