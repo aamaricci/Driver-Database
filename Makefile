@@ -1,29 +1,43 @@
 #TO BE CHANGED BY USER:
-#$ EXE: the DRIVER NAME 
-#$ COMPILER: supported compilers are ifort, gnu >v4.7 or use mpif90
+#$ EXE: the DRIVER NAME
+#$ FC: the fortran compiler, default is mpif90
 #$ PLATFORM: supported platform are intel, gnu
-#$ EXECUTABLE TARGET DIRECTORY (default if $HOME/.bin in the PATH)
-#EXE=ss_DFT
+#$ EXECUTABLE TARGET DIRECTORY (default if $HOME/.bin)
 EXE=1d_Kondo_chain.f90
-#solveBHZ_lattice.f90
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
 
-define colorecho	
-	@tput setaf 6
-	@tput bold
-	@echo $1
-	@tput sgr0
-endef
+# LIBRARIES TO BE INCLUDED
+#$ LIB_ED: either use *edlat* or *dmft_ed* (until we fix the naming conventions)
+#$ LIB_SS: specify slave spins library is any
+LIB_ED=edlat
+LIB_SS=slave_spins
 
 
 
 
+
+#########################################################################
+#########################################################################
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-GLOB_INC:=$(shell pkg-config --cflags dmft_ed dmft_tools scifor)
-GLOB_LIB:=$(shell pkg-config --libs   dmft_ed dmft_tools scifor)
+GLOB_INC:=$(shell pkg-config --cflags dmft_tools scifor)
+GLOB_LIB:=$(shell pkg-config --libs   dmft_tools scifor)
+
+ifdef LIB_ED
+GLOB_INC+=$(shell pkg-config --cflags ${LIB_ED})
+GLOB_LIB+=$(shell pkg-config --libs ${LIB_ED})
+endif
+
+ifdef LIB_SS
+GLOB_INC+=$(shell pkg-config --cflags ${LIB_SS})
+GLOB_LIB+=$(shell pkg-config --libs ${LIB_SS})
+endif
+
+
+
+
 
 
 ifeq ($(PLAT),intel)
@@ -51,40 +65,52 @@ EXEC=$(shell basename ${EXE} .f90)
 ##$ Extends the implicit support of the Makefile to .f90 files
 .SUFFIXES: .f90
 
+define colorecho	
+	@tput setaf $2
+	@tput bold
+	@echo $1
+	@tput sgr0
+endef
+
+
+
 all: FLAG:=${OFLAG} ${FPPMPI}
 all:
 	@echo ""
-	$(call colorecho,"compiling $(EXEC).f90 ")
+	$(call colorecho,"compiling $(EXEC).f90 ", 2)
 	@echo ""
 	$(FC) $(FLAG) $(EXEC).f90 -o $(DIREXE)/$(EXEC) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
+	$(call colorecho,"created $(EXEC) in  $(DIREXE)", 1)
 
 debug: FLAG:=${DFLAG} ${FPPMPI}
 debug:
 	@echo ""
-	$(call colorecho,"compiling $(EXEC).f90 ")
+	$(call colorecho,"compiling $(EXEC).f90 ", 2)
 	@echo ""
 	$(FC) $(FLAG) $(EXEC).f90 -o $(DIREXE)/$(EXEC) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
+	$(call colorecho,"created $(EXEC) in  $(DIREXE)", 1)
 
 
 
 serial: FLAG:=${FFLAG} ${FPPSERIAL}
 serial:
 	@echo ""
-	$(call colorecho,"compiling $(EXEC).f90 ")
+	$(call colorecho,"compiling $(EXEC).f90 ", 2)
 	@echo ""
 	$(FC) $(FLAG) $(EXEC).f90 -o $(DIREXE)/$(EXEC) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
+	$(call colorecho,"created $(EXEC) in  $(DIREXE)", 1)
 
 serial_debug: FLAG:=${DFLAG} ${FPPSERIAL}
 serial_debug:
 	@echo ""
-	$(call colorecho,"compiling $(EXEC).f90 ")
+	$(call colorecho,"compiling $(EXEC).f90 ", 2)
 	@echo ""
 	$(FC) $(FLAG) $(EXEC).f90 -o $(DIREXE)/$(EXEC) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
-
+	$(call colorecho,"created $(EXEC) in  $(DIREXE)", 1)
 
 
 
