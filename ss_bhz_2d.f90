@@ -61,7 +61,7 @@ program ss_bhz2d
 
   !Solve for the renormalized bands:
   call TB_Solve_model(hk_model,Nlso,kpath,Nkpath,&
-       colors_name=[red,blue,red,blue],&
+       colors_name=[red,pink,yellow,blue],&
        points_name=[character(len=40) ::'G', 'M', 'X', 'G'],&
        file="Bands_BHZ",iproject=.false.)
 
@@ -75,7 +75,7 @@ program ss_bhz2d
 
   !Solve for the renormalized bands:
   call TB_Solve_model(ss_hk_model,Nlso,kpath,Nkpath,&
-       colors_name=[red,blue,red,blue],&
+       colors_name=[red,pink,yellow,blue],&
        points_name=[character(len=40) ::'G', 'M', 'X', 'G'],&
        file="zBands_BHZ",iproject=.false.)
 
