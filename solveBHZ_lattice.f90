@@ -59,7 +59,6 @@ program testMF
   call add_ctrl_var(0.04d0,"eps")
 
   gint = gint*(1d0-5d0*Jhratio)
-
   x(1)=sigma
   dx(1)=0.01d0
   call fmin(bhz_f,x,lambda=dx)

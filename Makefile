@@ -11,7 +11,7 @@ DIREXE=$(HOME)/.bin
 # LIBRARIES TO BE INCLUDED
 #$ LIB_ED: either use *edlat* or *dmft_ed* (until we fix the naming conventions)
 #$ LIB_SS: specify slave spins library is any
-LIB_ED=edlat
+LIB_ED=dmft_ed
 LIB_SS=slave_spins
 
 
