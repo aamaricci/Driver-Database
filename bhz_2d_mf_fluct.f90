@@ -24,6 +24,7 @@ program bhz_2d
   character(len=20)                       :: Finput
   complex(8)                              :: Hloc(Nso,Nso),Hmf_glob(Nso,Nso)
   !
+  complex(8),allocatable                  :: Smats(:,:,:,:,:),Gmats(:,:,:,:,:)
   real(8),dimension(:,:),allocatable      :: kgrid,kpath
   complex(8),dimension(:,:,:),allocatable :: Hk
   complex(8),dimension(Nso,Nso)           :: Gamma1,Gamma2,Gamma5,GammaN
@@ -136,11 +137,29 @@ program bhz_2d
   write(*,*) "Tz,dTz=",params(2*L+1),params(2*L+2)
 
 
+  allocate(Smats(Nspin,Nspin,Norb,Norb,L))
+  allocate(Gmats(Nspin,Nspin,Norb,Norb,L))
+  allocate(Hk(Nso,Nso,Nktot));Hk=zero
+  !
+  call TB_build_model(Hk,hk_bhz,Nso,[Nkx,Nky])
+  call build_self_energy(params,Smats)
+  call dmft_gloc_matsubara(Hk,Gmats,Smats)
+  call dmft_print_gf_matsubara(Smats,"Smats",iprint=1)
+  call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
 
 contains
 
 
+  subroutine build_self_energy(p,Sigma)
+    real(8),dimension(:)                          :: p
+    complex(8),dimension(Nspin,Nspin,Norb,Norb,L) :: Sigma
+    complex(8),dimension(Nspin*Norb,Nspin*Norb,L) :: Self
+    do i=1,L
+       Self(:,:,i)      = -gint*params(2*L+1)/2d0*Gamma5 + params(i)*Gamma5 + xi*params(L+i)*GammaN
+       Sigma(:,:,:,:,i) = j2so(Self(:,:,i))
+    enddo
 
+  end subroutine build_self_energy
 
 
   !--------------------------------------------------------------------!
@@ -320,6 +339,59 @@ contains
     y2  =  lambda*sin(ky_g);y2=y2**2
     fx  = sqrt( (mh - gint*Tz/2d0 + ek)**2 + (x2+y2) )
   end function hk_x
+
+
+
+
+
+
+
+  !#################################
+
+
+  function so2j_index(ispin,iorb) result(isporb)
+    integer :: ispin,iorb
+    integer :: isporb
+    if(iorb>Norb)stop "error so2j_index: iorb>Norb"
+    if(ispin>Nspin)stop "error so2j_index: ispin>Nspin"
+    isporb=(ispin-1)*Nspin + iorb
+  end function so2j_index
+
+
+  function so2j(fg) result(g)
+    complex(8),dimension(Nspin,Nspin,Norb,Norb) :: fg
+    complex(8),dimension(Nspin*Norb,Nspin*Norb) :: g
+    integer                                     :: i,j,iorb,jorb,ispin,jspin
+    do ispin=1,Nspin
+       do jspin=1,Nspin
+          do iorb=1,Norb
+             do jorb=1,Norb
+                i=so2j_index(ispin,iorb)
+                j=so2j_index(jspin,jorb)
+                g(i,j) = fg(ispin,jspin,iorb,jorb)
+             enddo
+          enddo
+       enddo
+    enddo
+  end function so2j
+
+  function j2so(fg) result(g)
+    complex(8),dimension(Nspin*Norb,Nspin*Norb) :: fg
+    complex(8),dimension(Nspin,Nspin,Norb,Norb) :: g
+    integer                                     :: i,j,iorb,jorb,ispin,jspin
+    do ispin=1,Nspin
+       do jspin=1,Nspin
+          do iorb=1,Norb
+             do jorb=1,Norb
+                i=so2j_index(ispin,iorb)
+                j=so2j_index(jspin,jorb)
+                g(ispin,jspin,iorb,jorb)  = fg(i,j)
+             enddo
+          enddo
+       enddo
+    enddo
+  end function j2so
+
 
 end program bhz_2d
 
