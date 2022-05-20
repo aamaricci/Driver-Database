@@ -14,12 +14,12 @@ program bhz_2d
   real(8)                                 :: Uloc,Jh,Jhratio,Sz,Tz
   real(8)                                 :: mh,lambda
   real(8)                                 :: xmu,beta,eps
-  real(8)                                 :: wmix,it_error,sb_field
+  real(8)                                 :: wmix,it_error,tz0,dtz0
   real(8)                                 :: tol,sigma
   real(8)                                 :: gint,x(1),dx(1)
   real(8)                                 :: integral
   real(8)                                 :: ky_g
-  logical                                 :: withgf,withbands
+  logical                                 :: withgf
   logical                                 :: iexist,converged
   character(len=20)                       :: Finput
   complex(8)                              :: Hloc(Nso,Nso),Hmf_glob(Nso,Nso)
@@ -36,6 +36,8 @@ program bhz_2d
   call parse_cmd_variable(Finput,"FINPUT",default="input.conf")
   call parse_input_variable(Lf,"LF",Finput,default=256,comment="# of fermionic Mats frequencies, L=Lf+Lb")
   call parse_input_variable(Lb,"LB",Finput,default=64,comment="# of bosonix Mats frequencies, L=Lf+Lb")
+  call parse_input_variable(tz0,"tz0",Finput,default=-0.1d0,comment="Guess for MF search of Tz (tz0<0)")
+  call parse_input_variable(dtz0,"dtz0",Finput,default=0.1d0,comment="Guess for dTz fluctuations (dtz0>0)")
   call parse_input_variable(nkx,"NKX",Finput,default=10)
   call parse_input_variable(Uloc,"ULOC",Finput,default=0d0)
   call parse_input_variable(Jhratio,"JHRATIO",Finput,default=0d0)
@@ -47,7 +49,7 @@ program bhz_2d
   call parse_input_variable(maxiter,"MAXITER",Finput,default=100)    
   call parse_input_variable(eps,"EPS",Finput,default=4.d-2)
   call parse_input_variable(wmix,"WMIX",Finput,default=1d0)
-  call parse_input_variable(sb_field,"SB_FIELD",Finput,default=0.1d0)
+
   call parse_input_variable(withgf,"WITHGF",Finput,default=.false.)
   !
   call print_input(trim(Finput))
@@ -60,7 +62,6 @@ program bhz_2d
   call add_ctrl_var(-10d0,"wini")
   call add_ctrl_var(10d0,"wfin")
   call add_ctrl_var(eps,"eps")
-
 
 
   gamma1 = kron_pauli( pauli_sigma_z, pauli_tau_x)
@@ -77,16 +78,17 @@ program bhz_2d
 
 
   !>SOLVE MF PROBLEM 1st: >>ACTHUNG<< This solution does not use BZ basis defined later!!
-  write(*,*)"Solve MF:"
   call start_timer()
-  x(1)=tz
+  x(1)=-abs(tz0)
   dx(1)=0.1d0
   call fmin(bhz_f,x,lambda=dx)
   tz=x(1)
   open(free_unit(unit),file="mf_tzVSuloc.dat")
   write(unit,*)uloc,tz
   close(unit)
-  call stop_timer("Mean-Field:")
+  write(*,*) "Tz=",tz
+  call stop_timer(" Mean-Field")
+
 
 
   !> SOLVE FLUCTUATIONS:
@@ -96,16 +98,21 @@ program bhz_2d
 
   allocate(kgrid(Nktot,2))      !Nktot=# tot kpoints, 2= 2D
   call TB_build_kgrid([Nkx,Nky],kgrid)
-  !
+  allocate(wmats(L))
+  wmats = pi/beta*(2*arange(1,L)-1)
+
+
+
   !Tz[1] + <|dTz|**2>[1] + ReSigma(iw_n)[L] + ImSIgma(iw_n)[L]
   Nparams = 2 + 2*L
   allocate( params(Nparams), params_prev(Nparams))
 
   !Start from MF solution
-  params = [dble(zeros(L)),dble(zeros(L)),Tz,sb_field]
-  allocate(wmats(L))
-  wmats = pi/beta*(2*arange(1,L)-1)
+  params = [dble(zeros(L)),dble(zeros(L)),Tz,abs(dTz0)]
 
+  inquire(file="params.restart",exist=iexist)
+  if(iexist)call read_array("params.restart",params)
+  call save_array("params.init",params) 	!FP: verifying the initial params
 
   converged=.false. ; iter=0
   do while(.not.converged.AND.iter<maxiter)
@@ -123,7 +130,10 @@ program bhz_2d
   end do
   call save_array("params.restart",params)	!ok forse va salvato anche dSigma, ma only last step(?)
   !
-
+  open(free_unit(unit),file="tz_dtzVSuloc.dat")
+  write(unit,*)uloc,params(2*L+1),params(2*L+2)
+  close(unit)
+  write(*,*) "Tz,dTz=",params(2*L+1),params(2*L+2)
 
 
 
@@ -205,7 +215,7 @@ contains
     p(2*L+2)   = dTz
 
     write(*,*)iter,Tz,dTz,ReSigma(1),ImSigma(1)
-    call splot("Sigma_iw_iter"//str(iter,3),wmats,dcmplx(ReSigma(:),ImSigma(:)))
+    call splot("Sigma_iw_iter"//str(iter,3)//".dat",wmats,dcmplx(ReSigma(:),ImSigma(:)))
     return
   end subroutine solve_eqs
 
@@ -308,9 +318,9 @@ contains
     ek = -1d0*(cos(kx)+cos(ky_g))
     x2  =  lambda*sin(kx)  ;x2=x2**2
     y2  =  lambda*sin(ky_g);y2=y2**2
-    fx  = sqrt( (mh + gint*Tz/2d0 + ek)**2 + (x2+y2) )
+    fx  = sqrt( (mh - gint*Tz/2d0 + ek)**2 + (x2+y2) )
   end function hk_x
 
-end program
+end program bhz_2d
 
 
