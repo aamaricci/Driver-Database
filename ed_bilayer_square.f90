@@ -5,7 +5,7 @@ program ed_bilayer
   USE MPI
   implicit none
   integer                                     :: iloop,Lk,Nso,Nlso,Nlat
-  logical                                     :: converged,conv_dens,converged0
+  logical                                     :: converged,conv_dens
   integer :: ilat
   !Bath:
   integer                                     :: Nb
@@ -36,10 +36,10 @@ program ed_bilayer
   real(8),dimension(2)                        :: bklen
   !
   real(8)                                     :: Vnn  !+- nearest neighbourg interaction
-  real(8)                                     :: ntop,nbot,dens_check
+  real(8)                                     :: ntop,nbot
   integer                                     :: uio,uio_loop,imu
   real(8)                                     :: ntest1,ntest2,xmu_imp,xmu1,xmu2,alpha_mu,dens_error
-  logical                                     :: fix_mu,flag_mpi,printG
+  logical                                     :: fix_mu,flag_mpi
   logical                                     :: fixing_newton
 
   character(len=6)     :: fix_mu_scheme           !newton/f_zero
@@ -83,8 +83,6 @@ program ed_bilayer
 
   call parse_input_variable(fix_mu_scheme,"fix_mu_scheme",finput,default='f_zero')
 
-  call parse_input_variable(printG,"printG",finput,default=.true.)
-
   !
   call ed_read_input(trim(finput),comm)
   !
@@ -123,15 +121,16 @@ program ed_bilayer
   !+- a' = sqrt(3.0)*a is the modulus of the primitive vector of the triangular lattice
   !+- e_1 = sqrt(3.0)/2.0 * a [-1, sqrt(3.0)]
   !+- e_2 = sqrt(3.0)/2.0 * a [ 1, sqrt(3.0)]
-  e1 = sqrt(3d0)/2d0*[-1d0, sqrt(3d0)]
-  e2 = sqrt(3d0)/2d0*[ 1d0, sqrt(3d0)]
+  !e1 = sqrt(3d0)/2d0*[-1d0, sqrt(3d0)]
+  !e2 = sqrt(3d0)/2d0*[ 1d0, sqrt(3d0)]
+  e1 = [1d0,0d0]
+  e2 = [0d0,1d0]
   
   !RECIPROCAL LATTICE VECTORS:
-  bklen=2d0*pi/3d0
-  bk1=bklen*[ -sqrt(3d0), 1d0]
-  bk2=bklen*[  sqrt(3d0), 1d0]
+  bk1=2*pi*[ 1d0, 0d0]
+  bk2=2*pi*[ 0d0, 1d0]
   call TB_set_bk(bkx=bk1,bky=bk2) 
-  call build_hk_honeycomb()
+  call build_hk_square('Hk_square.out')
   !
   !
   Nb=ed_get_bath_dimension()
@@ -142,7 +141,7 @@ program ed_bilayer
   
   !
   !DMFT loop
-  iloop=0;converged=.false.;converged0=.false.
+  iloop=0;converged=.false.
   dens=[ntop,nbot]
   dens_prev=dens
   uio=free_unit()
@@ -219,52 +218,48 @@ program ed_bilayer
      call dmft_gloc_matsubara(Hk_loop,Gmats,Smats)
      call dmft_gloc_realaxis(Hk_loop,Greal,Sreal)
      
+     call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=4,ineq_pad=2)
+     call dmft_print_gf_realaxis(Greal,"Gloc",iprint=4,ineq_pad=2)
+     
      ! !Update WeissField:
      call dmft_self_consistency(Gmats,Smats,Weiss,Hloc,cg_scheme)
-     !
-     if(printG) then
-        call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=4,ineq_pad=2)
-        call dmft_print_gf_realaxis(Greal,"Gloc",iprint=4,ineq_pad=2)
-        call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=1,ineq_pad=2)
-     end if               
+     call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=1,ineq_pad=2)
+               
      !
      call ed_chi2_fitgf(bath,Weiss,Hloc,ispin=1)  !+- perche qui si mangia anche Hloc?
      !
      !+- mix things
      Bath = wmixing*Bath + (1.d0-wmixing)*Bath_prev
      dens = wmixing_dens*dens + (1.d0-wmixing_dens)*dens_prev
-
-     Gtest=Weiss(:,1,1,1,1,:)
-     if(.not.conv_dens) then
-        converged = check_convergence(Gtest,dmft_error,nsuccess,nloop)
-     else
-        converged = check_convergence_local(dens,dens_error,nsuccess,nloop)
-        ! dens_check=abs(dens(1)-dens_prev(1))**2.d0+abs(dens(2)-dens_prev(2))**2.d0
-        ! if(dens_check.lt.dens_err) converged0=.true.
-        ! if(dens_check.lt.dens_err.and.converged0) converged=.true.
-     end if
-     !
+     
      Bath_prev = Bath
      dens_prev = dens
      xmu_imp   = xmu
      !
+     Gtest=Weiss(:,1,1,1,1,:)
+     if(.not.conv_dens) then
+        converged = check_convergence(Gtest,dmft_error,nsuccess,nloop)
+     else
+        converged = check_convergence(dens,dens_error,nsuccess,nloop)
+     end if
+
+
      !if(nread/=0d0)call ed_search_variable(xmu,sum(dens),converged)
      
      call end_loop
 
+
   enddo
-  !
-  call set_Hloc(dens,'Hloc_last.dat')     
-  !
-  call dmft_gloc_realaxis(Hk_loop,Greal,Sreal)
-  call dmft_kinetic_energy(Hk_loop,Smats)
-  !
-  if(printG) then
-     call dmft_print_gf_realaxis(Greal,"Gloc",iprint=1)
-     call save_array("Smats",Smats)
-     call save_array("Sreal",Sreal)
-  end if
-  !
+
+
+  call dmft_gloc_realaxis(Hk,Greal,Sreal)
+  call dmft_print_gf_realaxis(Greal,"Gloc",iprint=1)
+
+  call dmft_kinetic_energy(Hk,Smats)
+
+  call save_array("Smats",Smats)
+  call save_array("Sreal",Sreal)
+
   call finalize_MPI()
 
 contains
@@ -339,6 +334,42 @@ contains
     !
   end subroutine build_hk_honeycomb
 
+  subroutine build_hk_square(file)
+    character(len=*),optional          :: file
+    real(8),dimension(2)               :: pointK,pointKp,pointM
+    real(8),dimension(:,:),allocatable :: KPath
+    real(8),dimension(:,:),allocatable :: kgrid
+    real(8),dimension(:),allocatable   :: gridx,gridy
+    integer                            :: i,j,ik
+    !
+    Lk= Nk*Nk
+    if(master)write(*,*)"Build H(k) for the honeycomb lattice:",Lk
+    if(master)write(*,*)"# of SO-bands     :",Nlso
+    !
+    if(allocated(Hk))deallocate(Hk)
+    !
+    allocate(Hk(Nlso,Nlso,Lk));Hk=zero
+    !
+    call TB_build_model(Hk,hk_square,Nlso,[Nk,Nk])
+    if(present(file).and.master) call TB_write_Hk(Hk,file,1,Nspin,Norb,[Nk,Nk])
+    !
+    !+- nomi di fantasia -+!
+    pointK  = 0.d0
+    pointKp = bk1*0.5d0 
+    pointM= 0.5d0*(bk1+bk2)
+    allocate(Kpath(4,2))
+    KPath(1,:)=[0d0,0d0]
+    KPath(2,:)=pointKp
+    Kpath(3,:)=pointM
+    KPath(4,:)=[0d0,0d0]
+    !
+    call TB_Solve_model(hk_square,Nlso,KPath,Nkpath,&
+         colors_name=[red1,blue1,red1,blue1],&
+         points_name=[character(len=10) :: "G","K","K`","G"],&
+         file="Eigenbands.nint",iproject=.false.)
+    !
+  end subroutine build_hk_square
+
   subroutine set_hloc(nave,file_out)
     real(8),dimension(2) :: nave
     complex(8),dimension(Nlat*Nspin*Norb,Nlat*Nspin*Norb) :: Hloc_tmp
@@ -357,18 +388,12 @@ contains
     allocate(Hk_loop(Nlso,Nlso,Lk)) ; Hk_loop=Hk
     !
     iso=lso2j_index(1,1,1)
-    Hloc_tmp(iso,iso) = Hloc_tmp(iso,iso) + 3.d0*Vnn*nave(2) !
+    Hloc_tmp(iso,iso) = Hloc_tmp(iso,iso) + 3.d0*Vnn*nave(2) !- 3.d0*Vnn*(nave(2)+nave(1))*0.5d0
     !
     iso=lso2j_index(2,1,1)
-    Hloc_tmp(iso,iso) = Hloc_tmp(iso,iso) + 3.d0*Vnn*nave(1) !
+    Hloc_tmp(iso,iso) = Hloc_tmp(iso,iso) + 3.d0*Vnn*nave(1) !- 3.d0*Vnn*(nave(2)+nave(1))*0.5d0
     !
-    do ik=1,Lk
-       iso=lso2j_index(1,1,1)
-       Hk_loop(iso,iso,ik) = Hk_loop(iso,iso,ik) + 3.d0*Vnn*nave(2) !
-       !
-       iso=lso2j_index(2,1,1)
-       Hk_loop(iso,iso,ik) = Hk_loop(iso,iso,ik) + 3.d0*Vnn*nave(1) !
-    end do
+    forall(ik=1:Lk) Hk_loop(:,:,ik) = Hk_loop(:,:,ik) + Hloc_tmp
     !
     Hloc = lso2nnn_reshape(Hloc_tmp,Nlat,Nspin,Norb)
     !
@@ -409,6 +434,27 @@ contains
     hk = h0*pauli_0 + hx*pauli_x + hy*pauli_y + hz*pauli_z 
     !
   end function hk_honeycomb
+
+
+  
+  function hk_square(kpoint,Nlso) result(hk)
+    real(8),dimension(:)            :: kpoint
+    integer                         :: Nlso
+    complex(8),dimension(2,2)       :: hk11,hk22
+    complex(8),dimension(Nlso,Nlso) :: hk
+    real(8)                         :: h0,hx,hy,hz, kdote1, kdote2
+    !
+    kdote1 = dot_product(kpoint,e1)
+    kdote2 = dot_product(kpoint,e2)
+    !
+    h0 = -2*ts*( cos(kdote1) + cos(kdote2) )
+    hx = -tperp*( cos(kdote1) + cos(kdote2) + 1 + cos(kdote1+kdote2))
+    hy = -tperp*( sin(kdote1) + sin(kdote2) + sin(kdote1+kdote2) )
+    hz = Vel
+    !
+    hk = h0*pauli_0 + hx*pauli_x + hy*pauli_y + hz*pauli_z 
+    !
+  end function hk_square
   
 
 
