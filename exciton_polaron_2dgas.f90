@@ -17,14 +17,20 @@ program ed_bilayer
   real(8),dimension(:),allocatable :: wr,modp,phip  
   complex(8),dimension(:,:),allocatable :: Pi_irreducible,Pi_irreducible_tmp
   !
-  complex(8),dimension(:,:),allocatable :: Sigma,Sigma_tmp
+  real(8),dimension(:),allocatable :: Im_Sigma,Im_Sigma_tmp
+  complex(8),dimension(:),allocatable :: Sigma,DX
+
   !
   complex(8),dimension(:,:),allocatable :: Lambda_vertex
   !
   complex(8),dimension(:),allocatable :: int_tmp,int_tmp_inn
+
+  real(8),dimension(:),allocatable :: int_tmp_im
+
   real(8),dimension(:),allocatable :: epp_tmp
+  real(8)   :: epsilonp
   complex(8) :: wcmplx
-  real(8) :: wp,mx,mel,bwp
+  real(8) :: wp,mx,mel,bwp,wtmp,ImL
   !  
   character(len=16)                           :: finput
   !MPI Vars:
@@ -105,7 +111,7 @@ program ed_bilayer
            int_tmp(ipp) = trapz(int_tmp_inn,phip(1),phip(lphi))           
            !
         end do
-        Pi_irreducible_tmp(iw,ip) = -1.d0*trapz(int_tmp,modp(1),modp(lp))
+        Pi_irreducible_tmp(iw,ip) = 1.d0*trapz(int_tmp,modp(1),modp(lp))
         !
      end do
   end do
@@ -114,7 +120,7 @@ program ed_bilayer
   
   allocate(Lambda_vertex(lreal,lp));     Lambda_vertex = 0.d0
 
-  Lambda_vertex=Vex*Vex*Pi_irreducible/(1.0-Vex*Pi_irreducible)
+  Lambda_vertex=Vex*Vex*Pi_irreducible/(1.0+Vex*Pi_irreducible)
 
   if(master) then     
      unit_io=free_unit()
@@ -150,184 +156,117 @@ program ed_bilayer
 
   end if
   !
-  allocate(Sigma(lreal,lp));     Sigma = 0.d0
-  allocate(Sigma_tmp(lreal,lp)); Sigma_tmp = 0.d0
+  allocate(Im_Sigma(lreal));     Im_Sigma = 0.d0
+  allocate(Im_Sigma_tmp(lreal)); Im_Sigma_tmp = 0.d0
+
+
+  allocate(Sigma(lreal));     Sigma = 0.d0
+
+  allocate(int_tmp_im(lp));int_tmp_im = 0.d0
+  !
+  do iw=1+rank,lreal,mpiSize
+     !
+     Im_Sigma_tmp(iw) = 0.d0
+     !
+     int_tmp_im=0.d0
+     do ip=1,lp
+
+        !find Im \Lambda_p(\Omega+\epsilon_p)
+        epsilonp = h0*0.5*modp(ip)**2.d0
+        wtmp = wr(iw) + epsilonp 
+        if(wtmp.lt.wini.or.wtmp.gt.wfin) then
+           ImL=0.d0
+        else
+           !+- interpolate
+           call linear_spline(wr(:),dimag(Lambda_vertex(:,ip)),wtmp,ImL)
+        end if
+        !
+        int_tmp_im(ip) = (fermi(epsilonp-ef,beta) - fermi(wtmp-ef,beta) )*ImL*modp(ip)/(2.d0*pi)
+        !
+     end do
+     !
+     Im_sigma_tmp(iw) = -1.d0*trapz(int_tmp_im,modp(1),modp(lp))           
+     !
+  end do
+  !
+  call mpi_allreduce(Im_sigma_tmp,Im_sigma,lreal,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD,MPIerr)
+  call get_kkt(Im_sigma,Im_sigma_tmp,wr,'IR')
+  !
+  Sigma = Im_sigma_tmp + xi*Im_sigma
   !
   
+  allocate(Dx(lreal));Dx=0.d0
+  do iw=1,Lreal
+     wcmplx = wr(iw) + xi*eps
+     Dx(iw) = 1.d0/(wcmplx-wx-Sigma(iw))
+  end do
+  if(rank==0) then
+     unit_io=free_unit()
+     open(unit=unit_io,file="Sigma.out")
+     do iw=1,lreal        
+        write(unit_io,'(5F18.10)') wr(iw),Sigma(iw)
+     end do
+     close(unit_io)
 
-  
+     open(unit=unit_io,file="DX.out")
+     do iw=1,lreal        
+        write(unit_io,'(5F18.10)') wr(iw),Dx(iw)
+     end do
+     close(unit_io)
 
-  ! Nlat=2
-  ! if(Nspin/=1.OR.Nlat/=2)stop "Wrong setup from input file: Nspin=1, Norb=2 -> 2Spin-Orbitals"
-  ! Nso=Nspin*Norb
-  ! Nlso=Nlat*Nso
-  
-  ! !Allocate Weiss Field:
+  end if
 
-  ! allocate(Smats(Nlat,Nspin,Nspin,Norb,Norb,Lmats))
-  ! allocate(Gmats(Nlat,Nspin,Nspin,Norb,Norb,Lmats))
-  ! allocate(Sreal(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
-  ! allocate(Greal(Nlat,Nspin,Nspin,Norb,Norb,Lreal))
-  ! allocate(Weiss(Nlat,Nspin,Nspin,Norb,Norb,Lmats))
-  ! allocate(Gtest(Nlat,Lmats))
-  ! allocate(dens(Norb)); allocate(dens_prev(Norb))
-  ! allocate(docc(Nlat)); 
-  ! allocate(SigmaHk(Nso,Nso))
-  ! allocate(Zmats(Nso,Nso))
-
-  ! !Buil the Hamiltonian on a grid or on  path
-  ! call set_SigmaHk()
-  
-  ! !+- a=1 is the hexagon edge
-  ! !+- a' = sqrt(3.0)*a is the modulus of the primitive vector of the triangular lattice
-  ! !+- e_1 = sqrt(3.0)/2.0 * a [-1, sqrt(3.0)]
-  ! !+- e_2 = sqrt(3.0)/2.0 * a [ 1, sqrt(3.0)]
-  ! e1 = sqrt(3d0)/2d0*[-1d0, sqrt(3d0)]
-  ! e2 = sqrt(3d0)/2d0*[ 1d0, sqrt(3d0)]
-  
-  ! !RECIPROCAL LATTICE VECTORS:
-  ! bklen=2d0*pi/3d0
-  ! bk1=bklen*[ -sqrt(3d0), 1d0]
-  ! bk2=bklen*[  sqrt(3d0), 1d0]
-  ! call TB_set_bk(bkx=bk1,bky=bk2) 
-  ! call build_hk_honeycomb()
-  ! !
-  ! !
-  ! Nb=ed_get_bath_dimension()
-  ! allocate(Bath(Nlat,Nb))
-  ! allocate(Bath_prev(Nlat,Nb))
-  ! call ed_init_solver(comm,bath)
-  ! Bath_prev=Bath
-  
-  ! !
-  ! !DMFT loop
-  ! iloop=0;converged=.false.;converged0=.false.
-  ! dens=[ntop,nbot]
-  ! dens_prev=dens
-  ! uio=free_unit()
-  ! if(master) then
-  !    open(uio,file='init_ndens_hf.out')
-  !    write(uio,'(3F18.10)') dens
-  !    close(uio)
-  ! end if
-  ! !
-  ! uio=free_unit()
-  ! if(master) then
-  !    open(uio,file='iloop_observables.out')
-  !    close(uio)
-  ! end if
-  ! call set_Hloc(dens)    
-  ! !
-  ! !
-  ! xmu1=0.d0
-  ! xmu2=xmu1
-
-
-  ! xmu_imp=xmu
-  ! do while(.not.converged.AND.iloop<nloop)
-  !    iloop=iloop+1
-  !    call start_loop(iloop,nloop,"DMFT-loop")
-     
-  !    !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-  !    call set_Hloc(dens,'Hloc_set'//str(iloop,Npad=3)//'.dat')     
-     
-  !    !+- set fix_mu=F and skip all this part
-  !    if(fix_mu) then
-  !       !   bracketing the xmu  !
-
-  !       select case(fix_mu_scheme)
-  !       case('newton')
-  !          call newton(get_delta_dens_imp_,xmu,eps=1d-4)
-  !       case('f_zero')
-  !          xmu1= -50
-  !          xmu2=  50
-  !          call fzero(get_delta_dens_imp,xmu1,xmu2,imu,tol_rel=1.d-8,tol_abs=1.d-6)
-  !          xmu=xmu1
-  !       case default           
-  !          xmu1= -50
-  !          xmu2=  50
-  !          call fzero(get_delta_dens_imp,xmu1,xmu2,imu,tol_rel=1.d-8,tol_abs=1.d-6)
-  !          xmu=xmu1
-  !       end select
-  !       !
-  !    end if
-  !    !
-  !    call ed_solve(comm,bath,Hloc,mpi_lanc=flag_mpi)     
-  !    call ed_get_sigma_matsubara(Smats,Nlat)
-  !    call ed_get_sigma_realaxis(Sreal,Nlat)
-
-  !    !
-  !    !
-  !    call ed_get_dens(dens,Nlat,iorb=1)
-  !    call ed_get_docc(docc,Nlat,iorb=1)
-  !    !
-  !    uio=free_unit()
-  !    if(master) then
-  !       open(uio,file='iloop_observables.out',status='old',position='append')
-  !       write(uio,'(10F18.10)') dens,docc,xmu
-  !       close(uio)
-  !    end if
-     
-  !    ! !Get GLOC:
-     
-  !    !+- here I should use Hk_loop !!!!
-  !    if(.not.allocated(hk_loop)) then
-  !       call mpi_barrier(comm,mpiERR)
-  !       stop
-  !    end if
-  !    call dmft_gloc_matsubara(Hk_loop,Gmats,Smats)
-  !    call dmft_gloc_realaxis(Hk_loop,Greal,Sreal)
-     
-  !    ! !Update WeissField:
-  !    call dmft_self_consistency(Gmats,Smats,Weiss,Hloc,cg_scheme)
-  !    !
-  !    if(printG) then
-  !       call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=4,ineq_pad=2)
-  !       call dmft_print_gf_realaxis(Greal,"Gloc",iprint=4,ineq_pad=2)
-  !       call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=1,ineq_pad=2)
-  !    end if               
-  !    !
-  !    call ed_chi2_fitgf(bath,Weiss,Hloc,ispin=1)  !+- perche qui si mangia anche Hloc?
-  !    !
-  !    !+- mix things
-  !    Bath = wmixing*Bath + (1.d0-wmixing)*Bath_prev
-  !    dens = wmixing_dens*dens + (1.d0-wmixing_dens)*dens_prev
-
-  !    Gtest=Weiss(:,1,1,1,1,:)
-  !    if(.not.conv_dens) then
-  !       converged = check_convergence(Gtest,dmft_error,nsuccess,nloop)
-  !    else
-  !       converged = check_convergence_local(dens,dens_error,nsuccess,nloop)
-  !       ! dens_check=abs(dens(1)-dens_prev(1))**2.d0+abs(dens(2)-dens_prev(2))**2.d0
-  !       ! if(dens_check.lt.dens_err) converged0=.true.
-  !       ! if(dens_check.lt.dens_err.and.converged0) converged=.true.
-  !    end if
-  !    !
-  !    Bath_prev = Bath
-  !    dens_prev = dens
-  !    xmu_imp   = xmu
-  !    !
-  !    !if(nread/=0d0)call ed_search_variable(xmu,sum(dens),converged)
-     
-  !    call end_loop
-
-  ! enddo
-  ! !
-  ! call set_Hloc(dens,'Hloc_last.dat')     
-  ! !
-  ! call dmft_gloc_realaxis(Hk_loop,Greal,Sreal)
-  ! call dmft_kinetic_energy(Hk_loop,Smats)
-  ! !
-  ! if(printG) then
-  !    call dmft_print_gf_realaxis(Greal,"Gloc",iprint=1)
-  !    call save_array("Smats",Smats)
-  !    call save_array("Sreal",Sreal)
-  ! end if
   !
   call finalize_MPI()
 
 contains
   
+
+
+  subroutine get_KKT(ReS,ImS,wreal,mode_)
+    real(8),dimension(:) :: ReS,ImS
+    real(8),dimension(:) :: wreal
+    character(len=2),optional :: mode_
+    character(len=2) :: mode
+    real(8) :: A,B
+    integer :: iv,iw,Lw
+    real(8),dimension(:),allocatable :: ImS_tmp
+    !
+    Lw = size(wreal)
+    if(size(ReS).ne.Lw) then
+       if(rank==0) write(*,*) 'size(ReS).ne.Lw'
+       CALL MPI_BARRIER(MPI_COMM_WORLD,MPIerr)       
+       stop
+    end if
+    !
+    if(size(ImS).ne.Lw) then
+       if(rank==0) write(*,*) 'size(ImS).ne.Lw'
+       CALL MPI_BARRIER(MPI_COMM_WORLD,MPIerr)       
+       stop
+    end if
+    !
+    mode='RI'
+    if(present(mode_)) mode=mode_
+    if(mode.ne.'IR'.and.mode.ne.'RI') stop "wrong mode KKT"
+    !
+    allocate(ImS_tmp(Lw))
+    ImS_tmp=0.d0
+    ImS=0.d0
+    do iw=1+rank,Lw,mpiSize
+       do iv=1,Lw-1          
+          A = ReS(iv) -wr(iv)*(ReS(iv)-ReS(iv+1))/(wr(iv)-wr(iv+1))
+          B = (ReS(iv)-ReS(iv+1))/(wr(iv)-wr(iv+1))          
+          ImS_tmp(iw) =ImS_tmp(iw)  -B*(wr(iv+1)-wr(iv))          
+          if(iv+1.ne.iw) ImS_tmp(iw) = ImS_tmp(iw) - (A+B*wr(iw))*log(abs(wr(iw)-wr(iv+1)))
+          if(iv.ne.iw)   ImS_tmp(iw) = ImS_tmp(iw) + (A+B*wr(iw))*log(abs(wr(iw)-wr(iv)))
+       end do
+       ImS_tmp(iw) = ImS_tmp(iw)/pi
+       if(mode.eq.'IR') ImS_tmp(iw)=-ImS_tmp(iw)
+    end do
+    CALL MPI_ALLREDUCE(ImS_tmp,ImS,Lw,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD,MPIerr)
+    !
+  end subroutine get_KKT
+
 
 
 end program
