@@ -4,27 +4,27 @@ program ed_bilayer
   USE DMFT_TOOLS
   USE MPI
   implicit none
-  integer                                     :: iloop,Lk,Nso
-  logical                                     :: converged
+  integer                             :: iloop,Lk,Nso
+  logical                             :: converged
   !Bath:
-  integer                                     :: Nb
-  real(8),allocatable                         :: Bath(:),Bath_prev(:)
+  integer                             :: Nb
+  real(8),allocatable                 :: Bath(:),Bath_prev(:)
   !The local hybridization function:
-  complex(8),allocatable                      :: Weiss(:,:,:,:,:)
-  complex(8),allocatable                      :: Smats(:,:,:,:,:)
-  complex(8),allocatable                      :: Sreal(:,:,:,:,:)
-  complex(8),allocatable                      :: Gmats(:,:,:,:,:)
-  complex(8),allocatable                      :: Greal(:,:,:,:,:)
-  complex(8),allocatable,dimension(:)         :: Gtest
-  real(8),allocatable,dimension(:)            :: dens
+  complex(8),allocatable              :: Weiss(:,:,:,:,:)
+  complex(8),allocatable              :: Smats(:,:,:,:,:)
+  complex(8),allocatable              :: Sreal(:,:,:,:,:)
+  complex(8),allocatable              :: Gmats(:,:,:,:,:)
+  complex(8),allocatable              :: Greal(:,:,:,:,:)
+  complex(8),allocatable,dimension(:) :: Gtest
+  real(8),allocatable,dimension(:)    :: dens
   !hamiltonian input:
   !variables for the model:
-  complex(8),allocatable                      :: Hk(:,:,:)
-  complex(8),allocatable                      :: Hloc(:,:)
-  complex(8),allocatable                      :: SigmaHk(:,:),Zmats(:,:)
-  integer                                     :: Nk,Nkpath
-  real(8)                                     :: ts,tperp,Vel,lambda,wmixing
-  character(len=16)                           :: finput
+  complex(8),allocatable              :: Hk(:,:,:)
+  complex(8),allocatable              :: Hloc(:,:)
+  complex(8),allocatable              :: SigmaHk(:,:),Zmats(:,:)
+  integer                             :: Nk,Nkpath
+  real(8)                             :: ts,tperp,Vel,lambda,wmixing
+  character(len=16)                   :: finput
   !MPI Vars:
   integer                                     :: comm,rank,mpierr
   logical                                     :: master
@@ -78,7 +78,7 @@ program ed_bilayer
   call set_SigmaHk()
   call build_hk()
 
-
+  
   Nb=ed_get_bath_dimension()
   allocate(Bath(Nb))
   allocate(Bath_prev(Nb))

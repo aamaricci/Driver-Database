@@ -34,8 +34,8 @@ program ed_ti_slab
 
   !gamma matrices and fields:
   complex(8),dimension(4,4)                     :: emat,soxmat,soymat,sozmat
-  real(8)                                       :: e0,mh,lambda
-  complex(8),dimension(4,4)                     :: NHmat,GapOpeningMat
+  real(8)                                       :: e0,mh,lambda,dummymag,dummymag_rescale
+  complex(8),dimension(4,4)                     :: NHmat,GapOpeningMat,magmat
   real(8)                                       :: GapOpeningField,NHfield_up,NHfield_dw
 
   !misc
@@ -73,6 +73,8 @@ program ed_ti_slab
   call parse_input_variable(lrsym,"LRSYM",finput,default=.true.)
   call parse_input_variable(wmixing,"WMIXING",finput,default=0.5d0)
   call parse_input_variable(getbands,"GETBANDS",finput,default=.true.)
+  call parse_input_variable(dummymag,"dummymag",finput,default=0.1d0)
+  call parse_input_variable(dummymag_rescale,"dummymag_rescale",finput,default=2d0)
   call parse_input_variable(Refine_xmu,"Refine_xmu",finput,default=.false.)
   call parse_input_variable(Tune_density,"Tune_density",finput,default=.true.)
   !
@@ -84,6 +86,7 @@ program ed_ti_slab
   soxmat=kron_pauli( pauli_sigma_z, pauli_tau_x)
   soymat=kron_pauli( pauli_sigma_0, pauli_tau_y)
   sozmat=kron_pauli( pauli_sigma_x, pauli_tau_x)
+  magmat=kron_pauli( pauli_sigma_z, pauli_tau_0)
   !
   GapOpeningMat=kron_pauli( pauli_sigma_y, pauli_tau_X)
   NHmat =zero
@@ -176,6 +179,17 @@ program ed_ti_slab
   do while(.not.converged.AND.iloop<nloop)
      iloop=iloop+1
      call start_loop(iloop,nloop,"DMFT-loop")   
+     !
+     S0=zero
+     if(iloop>1 .and. abs(dummymag) .gt. 1d-6)dummymag=dummymag/dummymag_rescale
+     if(master)print*,"Dummymag = ",dummymag
+     !
+     call build_hkr(trim(hkfile))
+     Hloc = lso2nnn(tiHloc,Nlat,Nspin,Norb)
+     do ineq=1,Nineq
+        ilat = ineq2ilat(ineq)
+        Hloc_ineq(ineq,:,:,:,:) = Hloc(ilat,:,:,:,:)
+     enddo     
      !
      call ed_solve(comm,Bath_ineq,Hloc_ineq)
      ! 
@@ -482,7 +496,7 @@ contains
     complex(8),dimension(N,N)  :: H
     !
     Hblock = (Mh - e0*(cos(kx) + cos(kz)))*emat+&
-         lambda*(sin(kx)*soxmat + sin(kz)*sozmat) + NHmat + GapOpeningField*GapOpeningMat
+         lambda*(sin(kx)*soxmat + sin(kz)*sozmat) + NHmat + GapOpeningField*GapOpeningMat + dummymag*magmat
     !
     H=zero
     !
@@ -813,12 +827,12 @@ contains
       ep_location=find_x_coordinate(50)
       ep_egap=gap_minimum(ep_location)
       ep_energy=get_e(ep_location)
+      XMU_REAL=ep_energy
       !
       if(abs(ep_energy-XMU)<0.01d0)then
         xmu_converged=.true.
       else
         xmu_converged=.false.
-        XMU_REAL=ep_energy
         XMU=(1d0-wmixing)*XMU_REAL+wmixing*XMU_OLD
       endif
       XMU_OLD=XMU

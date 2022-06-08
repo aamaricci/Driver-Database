@@ -192,7 +192,7 @@ contains
           zeta(2)    = zita(2,1)*zita(2,2)
           !
           !G_{lat,sigma} = zita_{lat,sigma'} * Int de D(w)/(zita_{lat,sigma}*zita_{lat,sigma'} - e)
-          Gmats(:,:,:,:,:,i)    = zero
+          Gmats(:,:,:,iorb,iorb,i)    = zero
           do ie=1,Le
              Gmats(1,1,1,iorb,iorb,i) = Gmats(1,1,1,iorb,iorb,i) + Dbands(iorb,ie)/(zeta(1) - Ebands(iorb,ie)**2)
              Gmats(2,1,1,iorb,iorb,i) = Gmats(2,1,1,iorb,iorb,i) + Dbands(iorb,ie)/(zeta(2) - Ebands(iorb,ie)**2)
@@ -227,7 +227,7 @@ contains
           zeta(2)    = zita(2,1)*zita(2,2)
 
           !G_{lat,sigma} = zita_{lat,sigma'} * Int de D(w)/(zita_{lat,sigma}*zita_{lat,sigma'} - e)
-          Greal(:,:,:,:,:,i)    = zero
+          Greal(:,:,:,iorb,iorb,i)    = zero
           do ie=1,Le
              Greal(1,1,1,iorb,iorb,i) = Greal(1,1,1,iorb,iorb,i) + Dbands(iorb,ie)/(zeta(1) - Ebands(iorb,ie)**2)
              Greal(2,1,1,iorb,iorb,i) = Greal(2,1,1,iorb,iorb,i) + Dbands(iorb,ie)/(zeta(2) - Ebands(iorb,ie)**2)

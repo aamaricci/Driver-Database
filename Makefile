@@ -10,18 +10,31 @@ FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
 
-define colorecho	
-	@tput setaf 6
-	@tput bold
-	@echo $1
-	@tput sgr0
-endef
+# LIBRARIES TO BE INCLUDED
+#$ LIB_ED: either use *edlat* or *dmft_ed* (until we fix the naming conventions)
+#$ LIB_SS: specify slave spins library is any
+LIB_ED=dmft_ed
+
 
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
 GLOB_INC:=$(shell pkg-config --cflags dmft_tools dmft_ed  scifor)
 GLOB_LIB:=$(shell pkg-config --libs dmft_ed dmft_tools scifor)
+
+ifdef LIB_ED
+GLOB_INC+=$(shell pkg-config --cflags ${LIB_ED})
+GLOB_LIB+=$(shell pkg-config --libs ${LIB_ED})
+endif
+
+ifdef LIB_SS
+GLOB_INC+=$(shell pkg-config --cflags ${LIB_SS})
+GLOB_LIB+=$(shell pkg-config --libs ${LIB_SS})
+endif
+
+GLOB_INC+=$(shell pkg-config --cflags dmft_tools scifor)
+GLOB_LIB+=$(shell pkg-config --libs   dmft_tools scifor)
+
 
 
 ifeq ($(PLAT),intel)
@@ -49,36 +62,48 @@ VER = 'character(len=41),parameter :: revision = "$(REV)"' > revision.inc
 ##$ Extends the implicit support of the Makefile to .f90 files
 .SUFFIXES: .f90
 
+define colorecho	
+	@tput setaf $2
+	@tput bold
+	@echo $1
+	@tput sgr0
+endef
+
+
+
 all: FLAG:=${OFLAG} ${FPPMPI}
 all:
 	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ")
+	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
 	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
+	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 
 debug: FLAG:=${DFLAG} ${FPPMPI}
 debug:
 	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ")
+	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
 	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
+	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 
 
 
 serial: FLAG:=${FFLAG} ${FPPSERIAL}
 serial:
 	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ")
+	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
 	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
+	$(call colorecho,"created $(EXEC) in  $(DIREXE)", 1)
 
 serial_debug: FLAG:=${DFLAG} ${FPPSERIAL}
 serial_debug:
 	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ")
+	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
 	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"

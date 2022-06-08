@@ -7,7 +7,7 @@ program ed_kanemele
 
   integer                                       :: iloop,Lk,Nso,Nlso,Nlat,Nineq
   logical                                       :: converged
-  integer                                       :: ispin,ilat!,i,j
+  integer                                       :: ispin,ilat,i!,j
   !
   !Bath:
   integer                                       :: Nb
@@ -17,6 +17,7 @@ program ed_kanemele
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Weiss
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Smats,Sreal
   complex(8),allocatable,dimension(:,:,:,:,:,:) :: Gmats,Greal
+  complex(8),allocatable,dimension(:,:,:,:)     :: Sekin
   !
   !Hamiltonian input:
   complex(8),allocatable,dimension(:,:,:)       :: Hk
@@ -62,31 +63,31 @@ program ed_kanemele
   call parse_cmd_variable(finput,"FINPUT",default='inputKANEMELE.conf')
   !
   call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in",&
-         comment='Hk will be written here')
+       comment='Hk will be written here')
   call parse_input_variable(nk,"NK",finput,default=100,&
-         comment='Number of kpoints per direction')
+       comment='Number of kpoints per direction')
   call parse_input_variable(nkpath,"NKPATH",finput,default=500,&
-         comment='Number of kpoints per interval on kpath. Relevant only if GETBANDS=T.')
+       comment='Number of kpoints per interval on kpath. Relevant only if GETBANDS=T.')
   call parse_input_variable(t1,"T1",finput,default=1d0,&
-         comment='NN hopping, fixes noninteracting bandwidth')
+       comment='NN hopping, fixes noninteracting bandwidth')
   call parse_input_variable(t2,"T2",finput,default=0.1d0,&
-         comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
+       comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
   call parse_input_variable(phi,"PHI",finput,default=pi/2d0,&
-         comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
+       comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
   call parse_input_variable(mh,"MH",finput,default=0d0,&
-         comment='On-site staggering, aka Semenoff-Mass term')
+       comment='On-site staggering, aka Semenoff-Mass term')
   call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0,&
-         comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
+       comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
   call parse_input_variable(bathspins,"BathSpins",finput,default="x",&
-         comment='x; xy; xz; xyz. Meaning the replica bath will have Sx; Sx,Sy; Sx,Sz; Sx,Sy,Sz components.')
+       comment='x; xy; xz; xyz. Meaning the replica bath will have Sx; Sx,Sy; Sx,Sz; Sx,Sy,Sz components.')
   call parse_input_variable(neelsym,"NEELSYM",finput,default=.true.,&
-         comment='If T AFM(xy) symmetry is enforced on the self energies at each loop')
+       comment='If T AFM(xy) symmetry is enforced on the self energies at each loop')
   call parse_input_variable(xkick,"xKICK",finput,default=.true.,&
-         comment='If T the bath spins get an initial AFM(x) distortion')
+       comment='If T the bath spins get an initial AFM(x) distortion')
   call parse_input_variable(ykick,"yKICK",finput,default=.false.,&
-         comment='If T the bath spins get an initial AFM(y) distortion')
+       comment='If T the bath spins get an initial AFM(y) distortion')
   call parse_input_variable(getbands,"GETBANDS",finput,default=.false.,&
-         comment='If T the noninteracting model is solved and the bandstructure stored')
+       comment='If T the noninteracting model is solved and the bandstructure stored')
   !
   call ed_read_input(trim(finput),comm)
   !
@@ -153,10 +154,10 @@ program ed_kanemele
   !SETUP HREPLICA SYMMETRIES: 
   select case(trim(BathSpins))
 
-   case default
+  case default
      stop "BathSpins not in [x; xy; xz; xyz]"
 
-   case("x")  !Only X spin component in the bath
+  case("x")  !Only X spin component in the bath
      allocate(lambdasym_vector(Nlat,2))
      allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,2))
      Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
@@ -164,7 +165,7 @@ program ed_kanemele
      lambdasym_vector(1,:)=[0d0, 0d0]
      lambdasym_vector(2,:)=[0d0, 0d0]
 
-   case("xy")  !Only XY spin components in the bath
+  case("xy")  !Only XY spin components in the bath
      allocate(lambdasym_vector(Nlat,3))
      allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
      Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
@@ -173,16 +174,16 @@ program ed_kanemele
      lambdasym_vector(1,:)=[0d0, 0d0, 0d0]
      lambdasym_vector(2,:)=[0d0, 0d0, 0d0]
 
-   case("xz")  !Only XZ spin components in the bath
-      allocate(lambdasym_vector(Nlat,3))
-      allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
-      Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
-      Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_x,Nspin,Norb)
-      Hsym_basis(:,:,:,:,3)=so2nn_reshape(pauli_sigma_z,Nspin,Norb)
-      lambdasym_vector(1,:)=[0d0, 0d0, 0d0]
-      lambdasym_vector(2,:)=[0d0, 0d0, 0d0]
+  case("xz")  !Only XZ spin components in the bath
+     allocate(lambdasym_vector(Nlat,3))
+     allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
+     Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
+     Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_x,Nspin,Norb)
+     Hsym_basis(:,:,:,:,3)=so2nn_reshape(pauli_sigma_z,Nspin,Norb)
+     lambdasym_vector(1,:)=[0d0, 0d0, 0d0]
+     lambdasym_vector(2,:)=[0d0, 0d0, 0d0]
 
-   case("xyz") !Full XYZ spin freedom in the bath
+  case("xyz") !Full XYZ spin freedom in the bath
      allocate(lambdasym_vector(Nlat,4))
      allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,4))
      Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
@@ -196,30 +197,30 @@ program ed_kanemele
 
   !SETUP SYMMETRY BREAKING KICKS
   if(xKICK)then
-    lambdasym_vector(1,2)= +sb_field
-    lambdasym_vector(2,2)= -sb_field
-    !For the log file
-    if(master)write(*,*) "*************************************************"
-    if(master)write(*,*) "*                                               *"
-    if(master)write(*,*) "*  !Applying an AFMx kick to the initial bath!  *"
-    if(master)write(*,*) "*                                               *"
-    if(master)write(*,*) "*************************************************"
+     lambdasym_vector(1,2)= +sb_field
+     lambdasym_vector(2,2)= -sb_field
+     !For the log file
+     if(master)write(*,*) "*************************************************"
+     if(master)write(*,*) "*                                               *"
+     if(master)write(*,*) "*  !Applying an AFMx kick to the initial bath!  *"
+     if(master)write(*,*) "*                                               *"
+     if(master)write(*,*) "*************************************************"
   endif
   if(yKICK)then  !Safe: look at the preliminary checks
-    lambdasym_vector(1,3)= +sb_field
-    lambdasym_vector(2,3)= -sb_field
-    !For the log file
-    if(master)write(*,*) "*************************************************"
-    if(master)write(*,*) "*                                               *"
-    if(master)write(*,*) "*  !Applying an AFMy kick to the initial bath!  *"
-    if(master)write(*,*) "*                                               *"
-    if(master)write(*,*) "*************************************************"
+     lambdasym_vector(1,3)= +sb_field
+     lambdasym_vector(2,3)= -sb_field
+     !For the log file
+     if(master)write(*,*) "*************************************************"
+     if(master)write(*,*) "*                                               *"
+     if(master)write(*,*) "*  !Applying an AFMy kick to the initial bath!  *"
+     if(master)write(*,*) "*                                               *"
+     if(master)write(*,*) "*************************************************"
   endif
 
   !SETUP H_replica
   call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
   !this is now elevated to RDMFT: ineq sites (1,2) for the lambdas
-  
+
   !SETUP SOLVER
   Nb=ed_get_bath_dimension(Hsym_basis)
   allocate(Bath(Nlat,Nb))
@@ -236,7 +237,7 @@ program ed_kanemele
      !
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
      if(neelsym)then
-      !solve just one sublattice and get the other by Neel symmetry (xy version)
+        !solve just one sublattice and get the other by Neel symmetry (xy version)
         call ed_solve(comm,Bath(1,:),Hloc(1,:,:,:,:))
         call ed_get_sigma_matsubara(Smats(1,:,:,:,:,:))
         call ed_get_sigma_realaxis(Sreal(1,:,:,:,:,:))
@@ -254,14 +255,14 @@ program ed_kanemele
         if(master)write(*,*) "*                                 *"
         if(master)write(*,*) "***********************************"
      else
-      !solve both sublattices independently with the RDMFT wrapper: 
+        !solve both sublattices independently with the RDMFT wrapper: 
         !mpi_lanc=T => MPI lanczos, mpi_lanc=F => MPI for ineq sites
         !Hloc is now mandatory here
         call ed_solve(comm,Bath,Hloc,mpi_lanc=.true.)
         !retrieve all self-energies:
         call ed_get_sigma_matsubara(Smats,Nlat)
         call ed_get_sigma_realaxis(Sreal,Nlat)
-     !
+        !
      endif
      !
      !COMPUTE THE LOCAL GF:
@@ -292,6 +293,13 @@ program ed_kanemele
 
   !Compute Kinetic Energy
   call dmft_kinetic_energy(Hk,Smats)
+
+
+  allocate(Sekin(Nlat,Nspin*Norb,Nspin*Norb,Lmats))
+  do i=1,Lmats
+     Sekin(:,:,:,i) = nnn2lnn_reshape(Smats(:,:,:,:,:,i),Nlat,Nspin,Norb)
+  enddo
+  call dmft_kinetic_energy_exp(Hk,Sekin)
 
   if(master) then
      write(*,*) "!***************************!"
@@ -426,6 +434,51 @@ contains
   !--------------------------------------------------------------------!
   !Reshaping functions:                                                !
   !--------------------------------------------------------------------!
+  function nnn2lnn_reshape(Fin,Nlat,Nspin,Norb) result(Fout)
+    integer                                          :: Nlat,Nspin,Norb
+    complex(8),dimension(Nlat,Nspin,Nspin,Norb,Norb) :: Fin
+    complex(8),dimension(Nlat,Nspin*Norb,Nspin*Norb) :: Fout
+    integer                                          :: iorb,ispin,ilat,is
+    integer                                          :: jorb,jspin,js
+    Fout=zero
+    do ilat=1,Nlat
+       do ispin=1,Nspin
+          do jspin=1,Nspin
+             do iorb=1,Norb
+                do jorb=1,Norb
+                   is = iorb + (ispin-1)*Norb
+                   js = jorb + (jspin-1)*Norb
+                   Fout(ilat,is,js) = Fin(ilat,ispin,jspin,iorb,jorb)
+                enddo
+             enddo
+          enddo
+       enddo
+    enddo
+  end function nnn2lnn_reshape
+
+  function lnn2nnn_reshape(Fin,Nlat,Nspin,Norb) result(Fout)
+    integer                                               :: Nlat,Nspin,Norb
+    complex(8),dimension(Nlat,Nspin*Norb,Nspin*Norb) :: Fin
+    complex(8),dimension(Nlat,Nspin,Nspin,Norb,Norb)      :: Fout
+    integer                                               :: iorb,ispin,ilat,is
+    integer                                               :: jorb,jspin,js
+    Fout=zero
+    do ilat=1,Nlat
+       do ispin=1,Nspin
+          do jspin=1,Nspin
+             do iorb=1,Norb
+                do jorb=1,Norb
+                   is = iorb + (ispin-1)*Norb
+                   js = jorb + (jspin-1)*Norb
+                   Fout(ilat,ispin,jspin,iorb,jorb) = Fin(ilat,is,js)
+                enddo
+             enddo
+          enddo
+       enddo
+    enddo
+  end function lnn2nnn_reshape
+
+
 
   function nnn2lso_reshape(Fin,Nlat,Nspin,Norb) result(Fout)
     integer                                               :: Nlat,Nspin,Norb
@@ -513,6 +566,278 @@ contains
 
 
 
+
+
+
+
+
+
+
+
+  subroutine dmft_kinetic_energy_exp(Hk,Sigma)
+    complex(8),dimension(:,:,:)                                     :: Hk ! [Nlat*Nspin*Norb][Nlat*Nspin*Norb][Lk]
+    complex(8),dimension(:,:,:,:)                                   :: Sigma ! [Nlat][Nspin*Norb][Nspin*Norb][L]
+    !
+    integer                                                         :: Lk,Nlso,Liw,Nso,Nlat
+    integer                                                         :: ik
+    integer                                                         :: i,iorb,ilat,ispin,io,is
+    integer                                                         :: j,jorb,jlat,jspin,jo,js
+    !
+    integer                                                         :: mpi_ierr
+    integer                                                         :: mpi_rank
+    integer                                                         :: mpi_size
+    logical                                                         :: mpi_master
+    !
+    ! integer                                                       :: Norb,Nporb
+    ! integer                                                       :: Nspin  
+    ! real(8)                                                       :: beta
+    ! real(8)                                                       :: xmu
+    real(8),dimension(:),allocatable                                :: wm
+    !
+    complex(8),dimension(size(Sigma,1),size(Sigma,2),size(Sigma,3)) :: Sigma_HF ![Nlat][Nso][Nso]
+    complex(8),dimension(size(Hk,1),size(Hk,2))                     :: Ak,Bk,Ck,Hloc,Hloc_tmp
+    complex(8),dimension(size(Hk,1),size(Hk,2))                     :: Gk,Tk
+    complex(8),dimension(size(Hk,1),size(Hk,2))                     :: GkTmp,HkTmp
+    real(8),dimension(size(Hk,1))                                   :: Nk
+    complex(8),dimension(size(Hk,1),size(Hk,2))                     :: Evec
+    real(8),dimension(size(Hk,1))                                   :: Eval,Coef
+    real(8)                                                         :: spin_degeneracy
+    !
+    real(8),dimension(size(Hk,1))                                   :: H0,Hl
+    real(8),dimension(size(Hk,1))                                   :: H0free,Hlfree
+    real(8),dimension(size(Hk,1))                                   :: H0tmp,Hltmp
+    real(8),dimension(size(Hk,1))                                   :: Ekin_,Eloc_
+
+    !
+    !MPI setup:
+#ifdef _MPI    
+    if(check_MPI())then
+       mpi_size  = get_size_MPI()
+       mpi_rank =  get_rank_MPI()
+       mpi_master= get_master_MPI()
+    else
+       mpi_size=1
+       mpi_rank=0
+       mpi_master=.true.
+    endif
+#else
+    mpi_size=1
+    mpi_rank=0
+    mpi_master=.true.
+#endif
+    !
+    !Retrieve parameters:
+    ! call get_ctrl_var(Norb,"NORB")
+    ! call get_ctrl_var(Nspin,"NSPIN")
+    ! call get_ctrl_var(beta,"BETA")
+    ! call get_ctrl_var(xmu,"XMU")
+    !Get generalized Lattice-Spin-Orbital index
+    Nlso = size(Hk,1)
+    Lk   = size(Hk,3)
+    Nlat = size(Sigma,1)
+    Nso  = size(Sigma,2)
+    Liw  = size(Sigma,4)
+    !Testing:
+    if(Nso/=Norb*Nspin)stop "dmft_kinetic_energy_exp: Nso != Norb*Nspin [from Sigma]"
+    call assert_shape(Hk,[Nlat*Nso,Nlso,Lk],"dmft_kinetic_energy_exp","Hk") !implcitly test that Nlat*Nso=Nlso
+    call assert_shape(Sigma,[Nlat,Nso,Nso,Liw],"dmft_kinetic_energy_exp","Sigma")
+    !
+    !Allocate and setup the Matsubara freq.
+    if(allocated(wm))deallocate(wm);allocate(wm(Liw))
+    wm = pi/beta*(2*arange(1,Liw)-1)
+    !
+    !Get HF part of the self-energy
+    Sigma_HF = dreal(Sigma(:,:,:,Liw))![Nlat,Nso,Nso]
+    !
+    ! Get the local Hamiltonian, i.e. the block diagonal part of the full Hk summed over k
+    Hloc_tmp=sum(Hk(:,:,:),dim=3)/dble(Lk)
+    Hloc=zero
+    do ilat=1,Nlat
+       do ispin=1,Nspin
+          do jspin=1,Nspin
+             do iorb=1,Norb
+                do jorb=1,Norb
+                   is = iorb + (ispin-1)*Norb + (ilat-1)*Nspin*Norb
+                   js = jorb + (jspin-1)*Norb + (ilat-1)*Nspin*Norb
+                   Hloc(is,js)=Hloc_tmp(is,js) 
+                enddo
+             enddo
+          enddo
+       enddo
+    enddo
+    where(abs(dreal(Hloc))<1.d-6)Hloc=0d0
+    ! if(size(Hloc,1)<16)then
+    !    if(mpi_master)call print_hloc(Hloc)
+    ! else
+    !    if(mpi_master)call print_hloc(Hloc,"dmft_ekin_Hloc.dat")
+    ! endif
+    !
+    !Start the timer:
+    if(mpi_master)write(*,"(A)") "Kinetic energy computation"
+    if(mpi_master)call start_timer
+    H0    = 0d0
+    Hl    = 0d0
+    H0tmp = 0d0
+    Hltmp = 0d0
+    !Get principal part: Tr[ Hk.(Gk-Tk) ]
+    do ik=1,Lk
+       Ak    = Hk(:,:,ik) - Hloc(:,:)
+       do i=1+mpi_rank,Liw,mpi_size
+          GkTmp(:,:) = (xi*wm(i) + xmu)*eye(Nlso) - blocks_to_matrix(Sigma(:,:,:,i),Nlat,Nso)  - Hk(:,:,ik)        
+          call inv(GkTmp)
+          Gk = GkTmp
+          !
+          GkTmp=zero
+          GkTmp(:,:) = (xi*wm(i) + xmu)*eye(Nlso) - blocks_to_matrix(Sigma_HF,Nlat,Nso)  - Hk(:,:,ik)
+          call inv(GkTmp)
+          Tk = GkTmp
+          !
+          Bk = matmul(Ak, Gk - Tk)
+          Ck = matmul(Hloc, Gk - Tk)
+          do is=1,Nlso
+             H0tmp(is) = H0tmp(is) + Bk(is,is)/dble(Lk)
+             Hltmp(is) = Hltmp(is) + Ck(is,is)/dble(Lk)
+          enddo
+       enddo
+       if(mpi_master)call eta(ik,Lk)
+    enddo
+#ifdef _MPI
+    if(check_MPI())then
+       call AllReduce_MPI(MPI_COMM_WORLD,H0tmp,H0)
+       call AllReduce_MPI(MPI_COMM_WORLD,Hltmp,Hl)
+    else
+       H0=H0tmp
+       Hl=Hltmp
+    endif
+#else
+    H0=H0tmp
+    Hl=Hltmp
+#endif
+    if(mpi_master)call stop_timer
+    spin_degeneracy=3d0-Nspin !2 if Nspin=1, 1 if Nspin=2
+    H0 = H0/beta*2d0*spin_degeneracy
+    Hl = Hl/beta*2d0*spin_degeneracy
+    !
+    !
+    !get tail subtracted contribution: Tr[ Hk.Tk ]
+    H0free=0d0
+    Hlfree=0d0
+    do ik=1,Lk
+       Evec= Hk(:,:,ik) +  blocks_to_matrix(Sigma_HF,Nlat,Nso)     
+       call eigh(Evec,Eval)
+       Nk  = fermi(Eval,beta)
+       Gk  = matmul(Evec,matmul(diag(Nk),conjg(transpose(Evec))))
+       Ak  = matmul(Hk(:,:,ik)-Hloc, Gk)
+       do is=1,Nlso
+          H0free(is) = H0free(is) + Ak(is,is)/dble(Lk)
+       enddo
+       Ak  = matmul(Hloc, Gk)
+       do is=1,Nlso
+          Hlfree(is) = Hlfree(is) + Ak(is,is)/dble(Lk)
+       enddo
+    enddo
+    H0free=spin_degeneracy*H0free
+    Hlfree=spin_degeneracy*Hlfree
+    !
+    Ekin_=H0+H0free
+    Eloc_=Hl+Hlfree
+    !
+    if(mpi_master)call write_kinetic_value(Ekin_,Eloc_,Nlat,Nso)
+    !
+    deallocate(wm)
+  end subroutine dmft_kinetic_energy_exp
+
+  subroutine write_kinetic_value(Ekin,Eloc,Nlat,Nso)
+    real(8),dimension(:)               :: Ekin
+    real(8),dimension(size(Ekin))      :: Eloc
+    real(8),dimension(:,:),allocatable :: Ekin_,Eloc_
+    integer,optional                   :: Nlat,Nso
+    integer                            :: Nlso
+    integer                            :: i,iso,ilat,unit
+    if(.not.present(Nlat))then
+       !
+       Nlso = size(Ekin)
+       !
+       unit = free_unit()
+       open(unit,file="my_kinetic_energy.info")
+       write(unit,"(A1,90(A14,1X))")"#",&
+            str(1)//"<K>",str(2)//"<Eloc>",&
+            (str(2+i)//"<K"//str(i)//">",i=1,Nlso),&
+            (str(2+Nlso+i)//"<Eloc"//str(i)//">",i=1,Nlso)
+       close(unit)
+       !
+       unit = free_unit()
+       open(unit,file="my_kinetic_energy.dat")
+       write(unit,"(90F15.9)")sum(Ekin),sum(Eloc),(Ekin(i),i=1,Nlso),(Eloc(i),i=1,Nlso)
+       close(unit)
+       !
+    else
+       !
+       if(.not.present(Nso))stop "ERROR write_kinetic_value: Nlat present but Nso not present."
+       !
+       Nlso = size(Ekin)
+       if(Nlso /= Nlat*Nso)stop "Error write_kinetic_value: Nlso != Nlat*Nso" 
+       !
+       unit = free_unit()
+       open(unit,file="my_kinetic_energy.info")
+       write(unit,"(A1,90(A14,1X))")"#",&
+            str(1)//"<K>",str(2)//"<Eloc>",&
+            (str(2+i)//"<K"//str(i)//">",i=1,Nso),&
+            (str(2+Nso+i)//"<Eloc"//str(i)//">",i=1,Nso)
+       close(unit)
+       !
+       !
+       allocate(Ekin_(Nlat,Nso))
+       allocate(Eloc_(Nlat,Nso))
+       do ilat=1,Nlat
+          do iso=1,Nso
+             i = iso + (ilat-1)*Nso
+             Ekin_(ilat,iso) = Ekin(i)
+             Eloc_(ilat,iso) = Eloc(i)
+          enddo
+       enddo
+       !
+       unit = free_unit()
+       open(unit,file="my_kinetic_energy.dat")       
+       write(unit,"(90F15.9)")sum(Ekin_)/Nlat,sum(Eloc_)/Nlat
+       do ilat=1,Nlat
+          write(unit,"(100000F15.9)")sum(Ekin_(ilat,:)),sum(Eloc_(ilat,:)),&
+               (Ekin_(ilat,i),i=1,Nso),&
+               (Eloc_(ilat,i),i=1,Nso)
+       enddo
+       close(unit)
+    endif
+  end subroutine write_kinetic_value
+
+  !+-----------------------------------------------------------------------------+!
+  !PURPOSE:
+  ! Bcast/Reduce a vector of Blocks [Nlat][Nso][Nso] onto a matrix [Nlat*Nso][Nlat*Nso]
+  !+-----------------------------------------------------------------------------+!
+  function blocks_to_matrix(Vblocks,Nlat,Nso) result(Matrix)
+    complex(8),dimension(Nlat,Nso,Nso)      :: Vblocks
+    integer                                 :: Nlat,Nso
+    complex(8),dimension(Nlat*Nso,Nlat*Nso) :: Matrix
+    integer                                 :: i,j,ip
+    Matrix=zero
+    do ip=1,Nlat
+       i = 1 + (ip-1)*Nso
+       j = ip*Nso
+       Matrix(i:j,i:j) =  Vblocks(ip,:,:)
+    enddo
+  end function blocks_to_matrix
+
+  function matrix_to_blocks(Matrix,Nlat,Nso) result(Vblocks)
+    complex(8),dimension(Nlat*Nso,Nlat*Nso) :: Matrix
+    integer                                 :: Nlat,Nso
+    complex(8),dimension(Nlat,Nso,Nso)      :: Vblocks
+    integer                                 :: i,j,ip
+    Vblocks=zero
+    do ip=1,Nlat
+       i = 1 + (ip-1)*Nso
+       j = ip*Nso
+       Vblocks(ip,:,:) = Matrix(i:j,i:j)
+    enddo
+  end function matrix_to_blocks
 
 
 

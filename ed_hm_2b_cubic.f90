@@ -124,6 +124,7 @@ program ed_hm_2b_cubic
 contains
 
 
+
   !---------------------------------------------------------------------
   !GET 2bands cubic lattice HAMILTONIAN (from the NonInteracting code)
   !---------------------------------------------------------------------
@@ -224,3 +225,7 @@ contains
 
 
 end program ed_hm_2b_cubic
+
+
+
+

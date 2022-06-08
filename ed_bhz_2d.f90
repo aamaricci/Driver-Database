@@ -30,14 +30,14 @@ program ed_bhz
   !
   real(8),dimension(2)                        :: Eout
   real(8),allocatable                         :: dens(:)
-  complex(8),dimension(4,4)                   :: Gamma1,Gamma2,Gamma5,GammaN
+  complex(8),dimension(4,4)                   :: Gamma1,Gamma2,Gamma5,GammaN,GammaS,GammaJ
   complex(8),dimension(4,4)                   :: GammaE0,GammaEx,GammaEy,GammaEz
   complex(8),dimension(4,4)                   :: GammaR0,GammaRx,GammaRy,GammaRz
   real(8),dimension(:),allocatable            :: lambdasym_vector
   complex(8),dimension(:,:,:,:,:),allocatable :: Hsym_basis
   !MPI Vars:
   integer                                     :: irank,comm,rank,ierr
-  logical                                     :: master,getbands,getakw
+  logical                                     :: master,getbands,getakw,getXem
 
   call init_MPI()
   comm = MPI_COMM_WORLD
@@ -59,6 +59,7 @@ program ed_bhz
   call parse_input_variable(mixG0,"mixG0",finput,default=.false.)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.d0)
   call parse_input_variable(usez,"USEZ",finput,default=.false.)
+  call parse_input_variable(getXem,"GETXEM",finput,default=.false.)
   call parse_input_variable(getbands,"GETBANDS",finput,default=.false.)
   call parse_input_variable(getakw,"GETAKW",finput,default=.false.)
   call parse_input_variable(Lakw,"LAKW",finput,default=250)
@@ -94,6 +95,9 @@ program ed_bhz
   gamma2=kron_pauli( pauli_sigma_0,-pauli_tau_y)
   gamma5=kron_pauli( pauli_sigma_0, pauli_tau_z)
   gammaN=kron_pauli( pauli_sigma_0, pauli_tau_0)
+  ! gammaJ=kron_pauli( pauli_sigma_x, (pauli_tau_0+pauli_tau_3)/2d0)
+  ! gammaJ=kron_pauli( pauli_sigma_x, pauli_tau_0) + kron_pauli( pauli_sigma_0, pauli_tau_x)
+  gammaJ=kron_pauli( pauli_sigma_x, pauli_tau_0)
   !
   gammaE0=kron_pauli( pauli_sigma_0, pauli_tau_x )
   gammaEx=kron_pauli( pauli_sigma_x, pauli_tau_x )
@@ -104,6 +108,16 @@ program ed_bhz
   gammaRx=kron_pauli( pauli_sigma_x, pauli_tau_y )
   gammaRy=kron_pauli( pauli_sigma_y, pauli_tau_y )
   gammaRz=kron_pauli( pauli_sigma_z, pauli_tau_y )
+
+
+
+  if(getXem)then
+     call get_Xem(Lakw)
+     call finalize_MPI()
+     stop
+  endif
+
+
 
   !Buil the Hamiltonian on a grid or on  path
   call set_sigmaBHZ()
@@ -126,7 +140,10 @@ program ed_bhz
      call finalize_MPI()
      stop
   endif
-  
+
+
+
+
   !Setup solver
   if(bath_type=="replica")then
      select case(trim(Params))
@@ -312,10 +329,8 @@ contains
     if(allocated(Hk))deallocate(Hk)
     if(allocated(wtk))deallocate(wtk)
     allocate(Hk(Nso,Nso,Lk)) ;Hk=zero
-    allocate(wtk(Lk))
     !
     call TB_build_model(Hk,hk_bhz,Nso,[Nk,Nk])
-    wtk = 1d0/Lk
     if(master.AND.present(file))then
        call TB_write_hk(Hk,trim(file),&
             Nlat=1,&
@@ -407,8 +422,7 @@ contains
 
 
 
-
-!---------------------------------------------------------------------
+  !---------------------------------------------------------------------
   !PURPOSE: GET A(k,w)
   !---------------------------------------------------------------------
   subroutine get_Akw(Lw,aw)
@@ -489,32 +503,165 @@ contains
 
 
 
+
+
+
+
+  !---------------------------------------------------------------------
+  !PURPOSE: GET X_em(q-->0,v)
+  !---------------------------------------------------------------------
+  subroutine get_Xem(Lv)
+    integer                                       :: i,ik,iv,iw,Lv,Lkpath,Lk,iq
+    complex(8),dimension(:,:,:,:,:,:),allocatable :: Gkmats
+    real(8),dimension(:,:),allocatable            :: Kgrid,Qgrid
+    real(8),dimension(:,:),allocatable            :: Kpath
+    real(8)                                       :: vm,len
+    real(8),dimension(2)                          :: qvec,kvec
+    complex(8)                                    :: Xem(2)
+    complex(8),dimension(Nso,Nso)                 :: Jk,Gkw,Gkqwv,A,B5,Bj,X5,Xj
+
+
+    if(Lv >= Lmats) stop "get_Xem ERROR: Lv > Lmats"
+
+    call set_SigmaBHZ()
+    !
+
+    !
+    if(master)print*,"Build Xemq(q-->0,v-->0) using Sigma(iw)"
+    !
+    !
+    call build_hk()
+    call read_sigma(Smats)
+
+    Lk = Nk**2
+    allocate(Kgrid(Lk,2))
+    call TB_build_kgrid([Nk,Nk],Kgrid)
+
+    allocate(kpath(2,2))
+    Lkpath    = Nkpath
+    kpath(1,:)= [pi2,0d0]
+    allocate(Qgrid(Lkpath,2) )
+    call TB_build_kgrid(kpath,Nkpath,Qgrid)
+
+    Gmats=zero
+    do i=1,Lmats
+       do ik=1,Lk       
+          Gmats(:,:,:,:,i) = Gmats(:,:,:,:,i) + j2so( get_simplified_gf(Kgrid(ik,:),i,Nso) )
+       enddo
+    enddo
+    Gmats=Gmats/Lk
+    call dmft_print_gf_matsubara(Gmats,"locG",iprint=print_mode)
+    
+    call start_timer()
+    do iq=1,Lkpath;iv=1
+       qvec = Qgrid(iq,:)
+       vm   = pi/beta*2*iv
+       X5   = zero
+       Xj   = zero
+       do ik=1,Lk
+          kvec  = Kgrid(ik,:)
+          jk    = hk_dkx_bhz(kvec,Nso)
+          do iw=1,Lmats-iv
+             Gkw   = get_simplified_gf(kvec,iw,Nso)
+             Gkqwv = get_simplified_gf(kvec+qvec,iw+iv,Nso)
+             A     = matmul(Gkw,jk)
+             B5    = matmul(Gkqwv,Gamma5)
+             Bj    = matmul(Gkqwv,GammaJ)
+             X5    = X5 + matmul(A,B5)
+             Xj    = Xj + matmul(A,Bj)
+          enddo
+       enddo
+       Xem = [trace(X5),trace(Xj)]
+       Xem = Xem/beta/(vm+1d-6)/Lk
+       !
+       !len=len+sqrt(dot_product(qvec,qvec))/Nkpath
+       len = iq
+       write(100,*)qvec(1),dreal(Xem(1)),dreal(Xem(2))
+       call eta(iq,Lkpath)
+    enddo
+    call stop_timer()
+  end subroutine get_Xem
+
+
+  !--------------------------------------------------------------------!
+  !BHZ D_kx H(kx,ky):
+  !--------------------------------------------------------------------!
+  function hk_dkx_bhz(kvec,N) result(hk)
+    integer                   :: N
+    real(8),dimension(:)      :: kvec
+    complex(8),dimension(N,N) :: hk
+    real(8)                   :: ek,kx,ky
+    integer                   :: ii
+    if(N/=Nso)stop "hk_bhz error: N != Nspin*Norb == 4"
+    kx=kvec(1)
+    ky=kvec(2)
+    Hk = sin(kx)*Gamma5 + lambda*cos(kx)*Gamma1
+  end function hk_dkx_bhz
+
+
+  function get_simplified_gf(kvec,i,N) result(gk)
+    real(8),dimension(:)      :: kvec
+    complex(8)                :: z
+    integer                   :: i,N
+    complex(8),dimension(N,N) :: gk,sigma
+    real(8)                   :: kx,ky
+    real(8)                   :: w_,M_,x_,y,Dx,Ek
+    sigma = so2j(Smats(:,:,:,:,i))
+    !
+    kx = kvec(1)
+    ky = kvec(2)
+    !
+    w_ = pi/beta*(2*i-1) - dimag(sigma(1,1))
+    M_ = Mh-1d0*(cos(kx)+cos(ky)) + dreal(sigma(1,1))
+    x_ = lambda*sin(kx) + dreal(sigma(1,2))
+    y  = lambda*sin(ky)
+    Dx = dreal(sigma(1,4))
+    !
+    Ek = M_**2 + x_**2 + y**2 + Dx**2
+    Gk = xi*w_*eye(Nso) + M_*Gamma5 + x_*Gamma1  + y*Gamma2 + Dx*GammaEx
+    Gk = Gk/(-w_**2-Ek)
+  end function get_simplified_gf
+
+
+
   !--------------------------------------------------------------------!
   !TRANSFORMATION BETWEEN DIFFERENT BASIS AND OTHER ROUTINES
   !--------------------------------------------------------------------!
   subroutine read_sigma(sigma)
     complex(8)        :: sigma(:,:,:,:,:)
-    integer           :: iorb,ispin,i,L,unit
-    real(8)           :: reS(Nspin),imS(Nspin),ww
+    integer           :: iorb,jorb,ispin,jspin,i,L,unit
+    real(8)           :: reS,imS,ww
     character(len=20) :: suffix
+    logical :: bool
     if(size(sigma,1)/=Nspin)stop "read_sigma: error in dim 1. Nspin"
     if(size(sigma,3)/=Norb)stop "read_sigma: error in dim 3. Norb"
-    L=size(sigma,5);print*,L
+    L=size(sigma,5)
     if(L/=Lmats.AND.L/=Lreal)stop "read_sigma: error in dim 5. Lmats/Lreal"
-    do iorb=1,Norb
-       unit=free_unit()
-       if(L==Lreal)then
-          suffix="_l"//reg(txtfy(iorb))//"_m"//reg(txtfy(iorb))//"_realw.ed"
-       elseif(L==Lmats)then
-          suffix="_l"//reg(txtfy(iorb))//"_m"//reg(txtfy(iorb))//"_iw.ed"
-       endif
-       write(*,*)"read from file=","impSigma"//reg(suffix)
-       open(unit,file="impSigma"//reg(suffix),status='old')
-       do i=1,L
-          read(unit,"(F26.15,6(F26.15))")ww,(imS(ispin),reS(ispin),ispin=1,Nspin)
-          forall(ispin=1:Nspin)sigma(ispin,ispin,iorb,iorb,i)=dcmplx(reS(ispin),imS(ispin))
+    do ispin=1,Nspin
+       do jspin=1,Nspin
+          do iorb=1,Norb
+             do jorb=1,Norb
+                suffix="_l"//reg(txtfy(iorb))//reg(txtfy(jorb))//"_s"//reg(txtfy(ispin))//reg(txtfy(jspin))//"_iw.ed"
+                if(L==Lreal)&
+                     suffix="_l"//reg(txtfy(iorb))//reg(txtfy(jorb))//"_s"//reg(txtfy(ispin))//reg(txtfy(jspin))//"_realw.ed"
+                !
+                write(*,*)"read from file=","impSigma"//reg(suffix)
+                inquire(file="impSigma"//reg(suffix),exist=bool)
+                if(bool)then
+                   unit=free_unit()
+                   open(unit,file="impSigma"//reg(suffix),status='old')
+                   do i=1,L
+                      read(unit,"(F26.15,6(F26.15))")ww,imS,reS
+                      sigma(ispin,jspin,iorb,jorb,i)=dcmplx(reS,imS)
+                   enddo
+                   close(unit)
+                else
+                   sigma(ispin,jspin,iorb,jorb,:)=zero
+                endif
+
+             enddo
+          enddo
        enddo
-       close(unit)
     enddo
   end subroutine read_sigma
 
