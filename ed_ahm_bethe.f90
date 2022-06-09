@@ -71,15 +71,16 @@ program ed_ahm_bethe
   Nb=ed_get_bath_dimension()
   allocate(Bath(Nb))
   allocate(Bath_prev(Nb))
+  !call ed_init_solver(bath,Hloc)
   call ed_init_solver(bath)
-  
+
 
   !DMFT loop
   iloop=0;converged=.false.
   do while(.not.converged.AND.iloop<nloop)
      iloop=iloop+1
      call start_loop(iloop,nloop,"DMFT-loop")
-     
+
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
      call ed_solve(bath,Hloc)
 
@@ -106,12 +107,13 @@ program ed_ahm_bethe
      call dmft_print_gf_matsubara(Weiss(2,:,:,:,:,:),"fWeiss",iprint=1)
 
      !Perform the self-consistency fitting the new bath
-     call ed_chi2_fitgf(Weiss,bath,ispin=1)
+     call ed_chi2_fitgf(Weiss(1,:,:,:,:,:),bath,ispin=1)
      !
      !if it holds apply symmetrizations 
      if(phsym)call ed_ph_symmetrize_bath(bath,save=.true.)
      if(normal_bath)call ed_enforce_normal_bath(bath,save=.true.)
-
+     !
+     !
      !MIXING:
      if(iloop>1)Bath = wmixing*Bath + (1.d0-wmixing)*Bath_prev
      Bath_prev=Bath
@@ -126,16 +128,12 @@ program ed_ahm_bethe
   enddo
 
   !Compute the local gfs:
-
   call dmft_gloc_realaxis(Ebethe,Dbethe,H0,Greal,Sreal)
   call dmft_print_gf_realaxis(Greal(1,:,:,:,:,:),"Gloc",iprint=1)
   call dmft_print_gf_realaxis(Greal(2,:,:,:,:,:),"Floc",iprint=1)
-
   !Compute the Kinetic Energy:
   call dmft_kinetic_energy(Ebethe,Dbethe,H0,Smats(1,:,:,:,:,:),Smats(2,:,:,:,:,:))
-
-
-
+  !
 end program ed_ahm_bethe
 
 

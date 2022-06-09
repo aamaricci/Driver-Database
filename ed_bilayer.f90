@@ -26,8 +26,8 @@ program ed_bilayer
   real(8)                             :: ts,tperp,Vel,lambda,wmixing
   character(len=16)                   :: finput
   !MPI Vars:
-  integer                             :: comm,rank
-  logical                             :: master
+  integer                                     :: comm,rank,mpierr
+  logical                                     :: master
 
 
   call init_MPI()
@@ -61,7 +61,7 @@ program ed_bilayer
 
   if(Nspin/=1.OR.Norb/=2)stop "Wrong setup from input file: Nspin=1, Norb=2 -> 2Spin-Orbitals"
   Nso=Nspin*Norb
-
+  
   !Allocate Weiss Field:
 
   allocate(Smats(Nspin,Nspin,Norb,Norb,Lmats))
@@ -84,7 +84,7 @@ program ed_bilayer
   allocate(Bath_prev(Nb))
   call ed_init_solver(comm,bath)
 
-
+  
   !DMFT loop
   iloop=0;converged=.false.
   do while(.not.converged.AND.iloop<nloop)

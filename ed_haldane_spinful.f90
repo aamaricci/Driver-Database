@@ -222,7 +222,7 @@ contains
     allocate(Hk(Nlso,Nlso,Lk));Hk=zero
     allocate(wtk(Lk));Wtk=0d0
     !
-
+    
     if(.not.timerevsym)then
         call TB_build_model(Hk,hk_haldane_model,Nlso,[Nk,Nk])
     else
