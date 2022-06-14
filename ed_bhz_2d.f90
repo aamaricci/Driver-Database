@@ -510,18 +510,22 @@ contains
   !---------------------------------------------------------------------
   !PURPOSE: GET X_em(q-->0,v)
   !---------------------------------------------------------------------
-  subroutine get_Xem(Lv)
-    integer                                       :: i,ik,iv,iw,Lv,Lkpath,Lk,iq
+  subroutine get_Xem(Liw)
+    integer                                       :: i,ik,iv,iw,Liw,Lkpath,Lk,iq
     complex(8),dimension(:,:,:,:,:,:),allocatable :: Gkmats
     real(8),dimension(:,:),allocatable            :: Kgrid,Qgrid
     real(8),dimension(:,:),allocatable            :: Kpath
     real(8)                                       :: vm,len
     real(8),dimension(2)                          :: qvec,kvec
-    complex(8)                                    :: Xem(2)
+    complex(8)                                    :: Xem
     complex(8),dimension(Nso,Nso)                 :: Jk,Gkw,Gkqwv,A,B5,Bj,X5,Xj
+    complex(8),dimension(4,4) :: GammaJ
 
 
-    if(Lv >= Lmats) stop "get_Xem ERROR: Lv > Lmats"
+    gammaJ=kron_pauli( pauli_sigma_0, pauli_tau_x )
+
+
+    if(Liw >= Lmats) stop "get_Xem ERROR: Liw > Lmats"
 
     call set_SigmaBHZ()
     !
@@ -539,44 +543,41 @@ contains
 
     allocate(kpath(2,2))
     Lkpath    = Nkpath
-    kpath(1,:)= [pi2,0d0]
+    kpath(1,:)= [0d0,0d0]
+    kpath(2,:)= [pi,0d0]
+    ! kpath(3,:)= [pi,pi]
+    ! kpath(4,:)= [0d0,0d0]
     allocate(Qgrid(Lkpath,2) )
     call TB_build_kgrid(kpath,Nkpath,Qgrid)
 
-    Gmats=zero
-    do i=1,Lmats
-       do ik=1,Lk       
-          Gmats(:,:,:,:,i) = Gmats(:,:,:,:,i) + j2so( get_simplified_gf(Kgrid(ik,:),i,Nso) )
-       enddo
-    enddo
-    Gmats=Gmats/Lk
-    call dmft_print_gf_matsubara(Gmats,"locG",iprint=print_mode)
-    
+    ! Gmats=zero
+    ! do i=1,Lmats
+    !    do ik=1,Lk       
+    !       Gmats(:,:,:,:,i) = Gmats(:,:,:,:,i) + j2so( get_simplified_gf(Kgrid(ik,:),i,Nso) )
+    !    enddo
+    ! enddo
+    ! Gmats=Gmats/Lk
+    ! call dmft_print_gf_matsubara(Gmats,"locG",iprint=print_mode)
+
     call start_timer()
     do iq=1,Lkpath;iv=1
        qvec = Qgrid(iq,:)
        vm   = pi/beta*2*iv
-       X5   = zero
        Xj   = zero
        do ik=1,Lk
           kvec  = Kgrid(ik,:)
           jk    = hk_dkx_bhz(kvec,Nso)
-          do iw=1,Lmats-iv
+          do iw=1,Liw-iv
              Gkw   = get_simplified_gf(kvec,iw,Nso)
              Gkqwv = get_simplified_gf(kvec+qvec,iw+iv,Nso)
              A     = matmul(Gkw,jk)
-             B5    = matmul(Gkqwv,Gamma5)
              Bj    = matmul(Gkqwv,GammaJ)
-             X5    = X5 + matmul(A,B5)
              Xj    = Xj + matmul(A,Bj)
           enddo
        enddo
-       Xem = [trace(X5),trace(Xj)]
+       Xem = trace(Xj)
        Xem = Xem/beta/(vm+1d-6)/Lk
-       !
-       !len=len+sqrt(dot_product(qvec,qvec))/Nkpath
-       len = iq
-       write(100,*)qvec(1),dreal(Xem(1)),dreal(Xem(2))
+       write(100,*)qvec(1),dreal(Xem),dimag(Xem)
        call eta(iq,Lkpath)
     enddo
     call stop_timer()
@@ -589,13 +590,23 @@ contains
   function hk_dkx_bhz(kvec,N) result(hk)
     integer                   :: N
     real(8),dimension(:)      :: kvec
-    complex(8),dimension(N,N) :: hk
-    real(8)                   :: ek,kx,ky
-    integer                   :: ii
+    complex(8),dimension(N,N) :: hk,uk,dhk,wmn,lhk
+    real(8)                   :: ek,kx,ky,Mk,xk,yk,eigk(N)
+    integer                   :: i,j,ii
     if(N/=Nso)stop "hk_bhz error: N != Nspin*Norb == 4"
-    kx=kvec(1)
-    ky=kvec(2)
-    Hk = sin(kx)*Gamma5 + lambda*cos(kx)*Gamma1
+    uk  = hk_bhz(kvec,N)
+    call eigh(uk,eigk)
+    kx  = kvec(1)
+    ky  = kvec(2)
+    Mk  = Mh-1d0*(cos(kx)+cos(ky))
+    xk  = lambda*sin(kx)
+    yk  = lambda*sin(ky)
+    Ek  = sqrt( Mk**2 + xk**2 + yk**2 )
+    wmn = 2*Ek*kron_pauli(0.5d0*(pauli_sigma_0+pauli_sigma_x),pauli_tau_y)
+    wmn = matmul(matmul(conjg(transpose(uk)),wmn),uk)
+    dHk = sin(kx)*Gamma5 + lambda*cos(kx)*Gamma1
+    lhk = wmn*kron_pauli(pauli_sigma_x,pauli_tau_y)!sigma_x \ocirc \tau_y
+    Hk  = dHk + lHk   
   end function hk_dkx_bhz
 
 
