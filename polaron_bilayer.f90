@@ -41,9 +41,11 @@ program ed_bilayer
   real(8)                                     :: ntest1,ntest2,xmu_imp,xmu1,xmu2,alpha_mu,dens_error
   logical                                     :: fix_mu,flag_mpi,printG
   logical                                     :: fixing_newton
-
+  !
   real(8),dimension(:,:),allocatable :: kgrid
-
+  integer,dimension(:,:),allocatable :: ik2ij,ik_diff
+  integer,dimension(:,:),allocatable :: ij2ik
+  !
 
   character(len=6)     :: fix_mu_scheme           !newton/f_zero
 
@@ -262,6 +264,16 @@ program ed_bilayer
   call finalize_MPI()
 
 contains
+
+  subroutine mpi_stop(msg)
+    character(len=*),optional :: msg
+    if(master) then
+       write(*,*) "STOP!"
+       if(present(msg)) write(*,*) msg       
+    end if
+    call mpi_barrier(comm,mpiERR)
+    stop
+  end subroutine mpi_stop
   
   function get_delta_dens_imp(xmu_in) result(dens_out)
     real(8),intent(in) :: xmu_in
@@ -298,10 +310,13 @@ contains
 
   subroutine build_hk_honeycomb(file)
     character(len=*),optional          :: file
-    real(8),dimension(2)               :: pointK,pointKp,pointM
+    real(8),dimension(2)               :: pointK,pointKp,pointM,kdiff
     real(8),dimension(:,:),allocatable :: KPath,kgrid_tmp
     real(8),dimension(:),allocatable   :: gridx,gridy
-    integer                            :: i,j,ik,unit_io
+    integer                            :: i,j,ik,unit_io,jk
+    integer :: idiff,jdiff
+    real(8) :: itmp,jtmp
+    
     !
     Lk= Nk*Nk
     if(master)write(*,*)"Build H(k) for the honeycomb lattice:",Lk
@@ -335,26 +350,75 @@ contains
     allocate(gridy(Nk)); gridy=linspace(0d0,1d0,Nk,iend=.false.)
 
     allocate(kgrid(Lk,2)); kgrid=0.d0
+    allocate(ik2ij(Lk,2)); ik2ij=0
+    allocate(ij2ik(Nk,Nk)); ij2ik=0
+
     ik=0
-    do i=1,Nk
-       do j=1,Nk
+    do j=1,Nk
+       do i=1,Nk
           ik=ik+1
           kgrid(ik,:) = gridx(i)*bk1+gridx(j)*bk2
+          ik2ij(ik,1) = i
+          ik2ij(ik,1) = j
+          ij2ik(i,j)  = ik
        end do       
     end do
-
+    !
     if(master) then
        unit_io=free_unit()
        open(unit_io,file='kgrid_driver.out')
        do ik=1,Lk
-          write(unit_io,*) kgrid_tmp(ik,:),kgrid(ik,:)
+          write(unit_io,'(5F18.10)') kgrid_tmp(ik,:),kgrid(ik,:)
        end do
        close(unit_io)
     end if
-    ! continue from here, now too tired 
     !
-    call mpi_barrier(comm,mpiERR)
-    stop
+    ! 
+    allocate(ik_diff(Lk,Lk)) ; ik_diff=0
+    do ik=1,Lk
+       do jk=1,Lk
+          ! 
+          kdiff = kgrid(ik,:) - kgrid(jk,:)
+
+          !continue from here; too tired tonight
+          itmp = dot_product(e1,kdiff)/2.d0/pi
+          jtmp = dot_product(e2,kdiff)/2.d0/pi
+          !
+          do while(itmp.ge.1.d0) 
+             itmp = itmp - 1.d0
+          end do
+          do while(itmp.lt.0.d0) 
+             itmp = itmp + 1.d0
+          end do
+          write(700,*) jtmp
+          do while(jtmp.ge.1.d0) 
+             jtmp = jtmp - 1.d0
+          end do
+          do while(jtmp.lt.0.d0) 
+             jtmp = jtmp + 1.d0
+          end do
+          write(701,*) jtmp
+
+
+          idiff = nint(Nk*itmp)+1
+          jdiff = nint(Nk*jtmp)+1          
+          if(idiff.lt.1.or.idiff.gt.Nk) then
+             if(master) write(*,*) idiff,itmp,ik,jk
+             call mpi_stop('idiff.lt.1.or.idiff.gt.Nk')
+          end if
+          if(jdiff.lt.1.or.jdiff.gt.Nk) then
+             if(master) write(*,*) jdiff,jtmp,ik,jk
+             call mpi_stop('jdiff.lt.1.or.jdiff.gt.Nk')
+          end if
+          ik_diff(ik,jk) = ij2ik(idiff,jdiff)
+          if(ik.eq.1) then
+             write(800,*) kdiff,kgrid(ik_diff(ik,jk),:)
+          end if
+       end do
+    end do
+    !
+    !
+    call mpi_stop
     !
   end subroutine build_hk_honeycomb
 
