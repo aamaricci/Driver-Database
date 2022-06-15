@@ -27,7 +27,7 @@ program ed_bilayer
   real(8)                                     :: ts,tperp,Vel,lambda,wmixing,ntarget,wmixing_dens
   character(len=16)                           :: finput
   !MPI Vars:
-  integer                                     :: comm,rank,mpierr
+  integer                                     :: comm,rank,mpierr,mpiSize
   logical                                     :: master
   !
   !
@@ -41,14 +41,27 @@ program ed_bilayer
   real(8)                                     :: ntest1,ntest2,xmu_imp,xmu1,xmu2,alpha_mu,dens_error
   logical                                     :: fix_mu,flag_mpi,printG
   logical                                     :: fixing_newton
+  integer                                     :: test_strides
   !
   real(8),dimension(:,:),allocatable :: kgrid
   integer,dimension(:,:),allocatable :: ik2ij,ik_diff
   integer,dimension(:,:),allocatable :: ij2ik
   !
+  !+- exciton-polaron problem
+  real(8)              :: thop_mev,am_nm
+  real(8)              :: wX,epsX,winiX,wfinX,mX,h0,delta_wgrid
 
+  integer              :: LwX,Lx,iw,ik
+  real(8),dimension(:),allocatable :: wrX,wr_tmp,wr
+  complex(8)           :: wcmplx
+  complex(8),dimension(:),allocatable :: DX
   character(len=6)     :: fix_mu_scheme           !newton/f_zero
+  real(8),dimension(:,:),allocatable :: Aloc,Ak_test
+    
+  real(8),dimension(2)               :: pointK,pointKp,pointM,kdiff
+  real(8),dimension(:,:),allocatable :: KPath
 
+  complex(8),dimension(:,:,:),allocatable :: pi_irreducible
   !
   !
   call init_MPI()
@@ -56,12 +69,13 @@ program ed_bilayer
   call StartMsg_MPI(comm)
   rank = get_Rank_MPI(comm)
   master = get_Master_MPI(comm)
+  mpiSize = get_size_MPI(comm)
   !
 
   !Parse additional variables && read Input && read H(k)^4x4
   call parse_cmd_variable(finput,"FINPUT",default='inputED_BL.in')  
   call parse_input_variable(nk,"NK",finput,default=100)
-  call parse_input_variable(nkpath,"NKPATH",finput,default=500)
+  call parse_input_variable(nkpath,"NKPATH",finput,default=100)
   call parse_input_variable(ts,"TS",finput,default=1d0)
   call parse_input_variable(tperp,"TPERP",finput,default=1d0)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.d0)
@@ -82,6 +96,28 @@ program ed_bilayer
   call parse_input_variable(fix_mu_scheme,"fix_mu_scheme",finput,default='f_zero')
   call parse_input_variable(printG,"printG",finput,default=.true.)
   !
+  call parse_input_variable(thop_mev,"thop_mev",finput,default=0.5d0,comment='hopping in meV')
+  call parse_input_variable(am_nm,"am_nm",finput,default=25d0,comment='moire periodicity in nm')
+  !
+  call parse_input_variable(wX,"wX",finput,default=1.6d0,comment='bare exciton energy in eV')
+
+  call parse_input_variable(mX,"mX",finput,default=1.3d0,comment='bare exciton mass [units of me]')
+
+  call parse_input_variable(epsX,"epsX",finput,default=1d-3,comment='exciton energy lifetime in eV')
+  !
+  call parse_input_variable(winiX,"winiX",finput,default=-5.d0,comment='minimum exciton energy in eV')
+  call parse_input_variable(wfinX,"wfinX",finput,default= 5.d0,comment='maximum exciton energy in eV')
+
+
+
+  call parse_input_variable(delta_wgrid,"dwx",finput,default=0.05d0,comment='range for the finer grid eV')
+
+  call parse_input_variable(LwX,"LwX",finput,default= 1000,comment='frequency discretizion for the exciton')
+
+  !
+  call parse_input_variable(test_strides,"test_strides",finput,default=0)
+
+  !
   call ed_read_input(trim(finput),comm)
   !
   !Add DMFT CTRL Variables:
@@ -92,6 +128,9 @@ program ed_bilayer
   call add_ctrl_var(wini,'wini')
   call add_ctrl_var(wfin,'wfin')
   call add_ctrl_var(eps,"eps")
+
+
+  h0=7.62d-02 ! hbar^2/m [eV x nm^2]
 
 
   Nlat=2
@@ -129,14 +168,23 @@ program ed_bilayer
   call TB_set_bk(bkx=bk1,bky=bk2) 
   call build_hk_honeycomb()
   !
+  
+
+  !+- now do a single DMFT-loop
+  if(nloop.gt.1) then
+     if(master) write(*,*) 'nloop set to 1'
+     nloop=1
+
+     if(master) write(*,*) 'fix_mu set to F'
+     fix_mu=.false.
+
+  end if
   !
   Nb=ed_get_bath_dimension()
   allocate(Bath(Nlat,Nb))
   allocate(Bath_prev(Nlat,Nb))
   call ed_init_solver(comm,bath)
   Bath_prev=Bath
-  
-  !
   !DMFT loop
   iloop=0;converged=.false.;converged0=.false.
   dens=[ntop,nbot]
@@ -235,35 +283,291 @@ program ed_bilayer
         converged = check_convergence(Gtest,dmft_error,nsuccess,nloop)
      else
         converged = check_convergence_local(dens,dens_error,nsuccess,nloop)
-        ! dens_check=abs(dens(1)-dens_prev(1))**2.d0+abs(dens(2)-dens_prev(2))**2.d0
-        ! if(dens_check.lt.dens_err) converged0=.true.
-        ! if(dens_check.lt.dens_err.and.converged0) converged=.true.
      end if
      !
      Bath_prev = Bath
      dens_prev = dens
      xmu_imp   = xmu
      !
-     !if(nread/=0d0)call ed_search_variable(xmu,sum(dens),converged)
-     
      call end_loop
-
+     !
   enddo
   !
   call set_Hloc(dens,'Hloc_last.dat')     
   !
-  call dmft_gloc_realaxis(Hk_loop,Greal,Sreal)
-  call dmft_kinetic_energy(Hk_loop,Smats)
+  ! call dmft_gloc_realaxis(Hk_loop,Greal,Sreal)
+  ! call dmft_kinetic_energy(Hk_loop,Smats)
   !
-  if(printG) then
-     call dmft_print_gf_realaxis(Greal,"Gloc",iprint=1)
-     call save_array("Smats",Smats)
-     call save_array("Sreal",Sreal)
+
+
+  !+- THE EXCITON-POLARON PROBLEM -+!
+  allocate(wr(Lreal)); wr=0.d0
+  wr=linspace(wini,wfin,Lreal) 
+
+  !+- test Akw DONE
+  allocate(Aloc(2,Lreal)); Aloc=0.d0
+  allocate(Ak_test(2,Lreal)); Ak_test=0.d0
+  do ik=1,Lk
+     call get_Akw(ik,Sreal(:,1,1,1,1,:),Ak_test)
+     Aloc = Aloc + Ak_test/dble(Lk)
+  end do
+  if(master) then
+     uio=free_unit()
+     open(uio,file='test_get_akw.out')
+     do iw=1,Lreal
+        write(uio,'(5F18.10)') wr(iw),Aloc(:,iw)
+     end do
+     close(uio)
   end if
   !
-  call finalize_MPI()
 
+
+  !+- set the eXciton frequency grid
+  Lx=2*LwX+Lreal
+  allocate(wrX(Lx)); wrX=0.d0    
+  !+- coarse grid (negative frequency)
+  allocate(wr_tmp(LwX))
+  wr_tmp=linspace(winiX,wX-delta_wgrid,LwX,iend=.false.)
+  wrX(1:Lwx) = wr_tmp 
+  deallocate(wr_tmp)
+  !+- fine grid (around exciton)
+  allocate(wr_tmp(Lreal))
+  wr_tmp=linspace(wX-delta_wgrid,wX+delta_wgrid,Lreal,iend=.false.)
+  wrX(LwX+1:LwX+Lreal) = wr_tmp 
+  deallocate(wr_tmp)
+  !+- coarse grid (positive frequency)
+  allocate(wr_tmp(LwX))
+  wr_tmp=linspace(wX+delta_wgrid,wfinX,LwX)
+  wrX(LwX+Lreal+1:2*LwX+Lreal) = wr_tmp 
+  deallocate(wr_tmp)  
+  !
+  !+- the bare exciton propagator
+  allocate(DX(LX)); DX=0.d0
+  do iw=1,LX
+     wcmplx=wrX(iw)+xi*epsX
+     DX(iw) = 1d0/(wcmplx-wX)
+  end do
+  uio=free_unit()
+  if(master) then
+     open(uio,file='bare_exciton.out')
+     do iw=1,LX
+        write(uio,'(5F18.10)') wrX(iw),-1.d0*dimag(DX(iw)),DX(iw)
+     end do
+     close(uio)
+  end if
+  !
+  call get_pi_irreducible(pi_irreducible)
+
+
+  
+  
+  uio=free_unit()
+  if(master) then
+     open(uio,file='pi_irreducible.out')
+     do iw=1,LX
+        write(uio,'(10F18.10)') wrX(iw),pi_irreducible(1:2,1,iw)
+     end do
+     close(uio)
+  end if
+  !
+  
+  
+
+  !
+  call finalize_MPI()
+  !
 contains
+
+
+  !+- first to test: get_Akw
+
+  subroutine get_Akw(ik,Sigma,Akw)
+    integer,intent(in) :: ik 
+    complex(8),dimension(2,Lreal),intent(in) :: Sigma
+    real(8),dimension(:,:),allocatable,intent(out) :: Akw
+    complex(8),dimension(2,2,Lreal) :: Gkw,Gkw_tmp
+    !
+    !
+    !+ 
+    Gkw_tmp=0.d0
+    do iw=1+rank,Lreal,mpiSize
+       Gkw_tmp(:,:,iw) = (wr(iw)+xi*eps+xmu)*eye(2) - Hk_loop(:,:,ik)
+       Gkw_tmp(1,1,iw) = Gkw_tmp(1,1,iw) - Sigma(1,iw)
+       Gkw_tmp(2,2,iw) = Gkw_tmp(2,2,iw) - Sigma(2,iw)
+       call inv(Gkw_tmp(:,:,iw))
+    end do
+    call mpi_allreduce(Gkw_tmp,Gkw,lreal*2*2,MPI_DOUBLE_COMPLEX,MPI_SUM,MPI_COMM_WORLD,MPIerr)    
+
+    if(allocated(Akw)) deallocate(Akw)
+    allocate(Akw(2,Lreal)); Akw=0.d0
+    !
+    Akw(1,:) = -1.d0/pi*dimag(Gkw(1,1,:))
+    Akw(2,:) = -1.d0/pi*dimag(Gkw(2,2,:))
+    !
+  end subroutine get_Akw
+
+
+
+
+  !+- this is the routine to be tested -+!
+  subroutine get_pi_irreducible(pi_irreducible)
+    complex(8),dimension(:,:,:),allocatable,intent(out) :: pi_irreducible
+    complex(8),dimension(:,:,:),allocatable :: pi_irreducible_tmp
+    real(8),dimension(:,:,:),allocatable :: re_pi_tmp,im_pi_tmp
+    real(8) :: wtmp,wpX,wtmp_rescale
+    real(8),dimension(:,:),allocatable :: Akw
+    real(8),dimension(2) :: Akw_tmp
+    integer :: ik,jk,iik
+    !
+    allocate(re_pi_tmp(2,Lk,Lx)); re_pi_tmp = 0.d0
+    allocate(im_pi_tmp(2,Lk,Lx)); im_pi_tmp = 0.d0
+    !
+    if(allocated(pi_irreducible)) deallocate(pi_irreducible)
+    allocate(pi_irreducible(2,Lk,Lx)); pi_irreducible = 0.d0
+    allocate(pi_irreducible_tmp(2,Lk,Lx)); pi_irreducible_tmp = 0.d0
+    !
+    do ik=1+rank,Lk,mpiSize  !+- this is the external momentum
+       !
+       if(master) write(*,*) 'Pi-irreducible',ik,Lk
+       
+       do jk=1,Lk   !+- this is the momentum over which the integration is performed
+          !
+          iik=ik_diff(ik,jk)   !+- this is the grid difference
+          !
+          call get_Akw(iik,Sreal(:,1,1,1,1,:),Akw)  !+- here set the array of fermionic greens function
+          !
+          do iw=1,Lx          
+             !
+             wpX = wX + 0.5*h0*dot_product(kgrid(jk,:),kgrid(jk,:))/am_nm/am_nm !+- exciton energy
+             wtmp = wrX(iw) - wpX
+             
+             !get  wtmp in dimensionless units
+             !wtmp is in electron Volt: rescale using the thop=1 dimensionless scale
+             wtmp_rescale = wtmp/thop_meV/1d-3
+             !
+             if(wtmp_rescale.gt.wini.or.wtmp_rescale.lt.wfin) then
+                !
+                !+- here interpolate the spectral functions
+                call linear_spline(wr(:),Akw(1,:),wtmp_rescale,Akw_tmp(1))   
+                call linear_spline(wr(:),Akw(2,:),wtmp_rescale,Akw_tmp(2))
+                !
+                !+- add to the integral
+                im_pi_tmp(:,ik,iw) = im_pi_tmp(:,ik,iw) - pi*Akw_tmp(:)*(fermi(wtmp,beta)-1.d0)/dble(Lk) !-1.0 =  bose(-\o_p)
+                !
+             end if
+             
+          end do
+       end do
+       !
+       !+ get KKT
+       call get_kkt_serial(im_pi_tmp(1,ik,:),re_pi_tmp(1,ik,:),wrX,'IR')
+       call get_kkt_serial(im_pi_tmp(2,ik,:),re_pi_tmp(2,ik,:),wrX,'IR')       
+       !
+
+       write(500+rank,*) ik
+
+       pi_irreducible_tmp(:,ik,:) = xi*im_pi_tmp(:,ik,:)+re_pi_tmp(:,ik,:)
+       write(600+rank,*) ik
+
+       !
+    end do
+    if(master) write(*,*) 'mbe? che famo?'
+    call mpi_stop
+
+    CALL MPI_ALLREDUCE(pi_irreducible_tmp,pi_irreducible,2*Lk*Lx,MPI_DOUBLE_COMPLEX,MPI_SUM,MPI_COMM_WORLD,MPIerr)
+  end subroutine get_pi_irreducible
+
+
+  subroutine get_KKT(ReS,ImS,wreal,mode_)
+    real(8),dimension(:) :: ReS,ImS
+    real(8),dimension(:) :: wreal
+    character(len=2),optional :: mode_
+    character(len=2) :: mode
+    real(8) :: A,B
+    integer :: iv,iw,Lw
+    real(8),dimension(:),allocatable :: ImS_tmp
+    !
+    Lw = size(wreal)
+    if(size(ReS).ne.Lw) then
+       if(rank==0) write(*,*) 'size(ReS).ne.Lw'
+       CALL MPI_BARRIER(MPI_COMM_WORLD,MPIerr)       
+       stop
+    end if
+    !
+    if(size(ImS).ne.Lw) then
+       if(rank==0) write(*,*) 'size(ImS).ne.Lw'
+       CALL MPI_BARRIER(MPI_COMM_WORLD,MPIerr)       
+       stop
+    end if
+    !
+    mode='RI'
+    if(present(mode_)) mode=mode_
+    if(mode.ne.'IR'.and.mode.ne.'RI') stop "wrong mode KKT"
+    !
+    allocate(ImS_tmp(Lw))
+    ImS_tmp=0.d0
+    ImS=0.d0
+    do iw=1+rank,Lw,mpiSize
+       do iv=1,Lw-1          
+          A = ReS(iv) -wr(iv)*(ReS(iv)-ReS(iv+1))/(wr(iv)-wr(iv+1))
+          B = (ReS(iv)-ReS(iv+1))/(wr(iv)-wr(iv+1))          
+          ImS_tmp(iw) =ImS_tmp(iw)  -B*(wr(iv+1)-wr(iv))          
+          if(iv+1.ne.iw) ImS_tmp(iw) = ImS_tmp(iw) - (A+B*wr(iw))*log(abs(wr(iw)-wr(iv+1)))
+          if(iv.ne.iw)   ImS_tmp(iw) = ImS_tmp(iw) + (A+B*wr(iw))*log(abs(wr(iw)-wr(iv)))
+       end do
+       ImS_tmp(iw) = ImS_tmp(iw)/pi
+       if(mode.eq.'IR') ImS_tmp(iw)=-ImS_tmp(iw)
+    end do
+    CALL MPI_ALLREDUCE(ImS_tmp,ImS,Lw,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD,MPIerr)
+    !
+  end subroutine get_KKT
+
+
+
+
+  subroutine get_KKT_serial(ReS,ImS,wreal,mode_)
+    real(8),dimension(:) :: ReS,ImS
+    real(8),dimension(:) :: wreal
+    character(len=2),optional :: mode_
+    character(len=2) :: mode
+    real(8) :: A,B
+    integer :: iv,iw,Lw
+    real(8),dimension(:),allocatable :: ImS_tmp
+    !
+    Lw = size(wreal)
+    if(size(ReS).ne.Lw) then
+       if(rank==0) write(*,*) 'size(ReS).ne.Lw'
+       CALL MPI_BARRIER(MPI_COMM_WORLD,MPIerr)       
+       stop
+    end if
+    !
+    if(size(ImS).ne.Lw) then
+       if(rank==0) write(*,*) 'size(ImS).ne.Lw'
+       CALL MPI_BARRIER(MPI_COMM_WORLD,MPIerr)       
+       stop
+    end if
+    !
+    mode='RI'
+    if(present(mode_)) mode=mode_
+    if(mode.ne.'IR'.and.mode.ne.'RI') stop "wrong mode KKT"
+    !
+    ImS=0.d0
+    !do iw=1+rank,Lw,mpiSize
+    do iw=1,Lw
+       do iv=1,Lw-1          
+          A = ReS(iv) -wr(iv)*(ReS(iv)-ReS(iv+1))/(wr(iv)-wr(iv+1))
+          B = (ReS(iv)-ReS(iv+1))/(wr(iv)-wr(iv+1))          
+          ImS(iw) =ImS(iw)  -B*(wr(iv+1)-wr(iv))          
+          if(iv+1.ne.iw) ImS(iw) = ImS(iw) - (A+B*wr(iw))*log(abs(wr(iw)-wr(iv+1)))
+          if(iv.ne.iw)   ImS(iw) = ImS(iw) + (A+B*wr(iw))*log(abs(wr(iw)-wr(iv)))
+       end do
+       ImS(iw) = ImS(iw)/pi
+       if(mode.eq.'IR') ImS(iw)=-ImS(iw)
+    end do
+    !
+  end subroutine get_KKT_serial
+
+
 
   subroutine mpi_stop(msg)
     character(len=*),optional :: msg
@@ -310,8 +614,8 @@ contains
 
   subroutine build_hk_honeycomb(file)
     character(len=*),optional          :: file
-    real(8),dimension(2)               :: pointK,pointKp,pointM,kdiff
-    real(8),dimension(:,:),allocatable :: KPath,kgrid_tmp
+    !real(8),dimension(2)               :: pointK,pointKp,pointM,kdiff
+    real(8),dimension(:,:),allocatable :: kgrid_tmp
     real(8),dimension(:),allocatable   :: gridx,gridy
     integer                            :: i,j,ik,unit_io,jk
     integer :: idiff,jdiff
@@ -373,35 +677,47 @@ contains
        close(unit_io)
     end if
     !
-    ! 
+    !
+    ! if(test_strides.gt.Lk) test_strides=0
+    ! if(test_strides.lt.1) test_strides=0
+
     allocate(ik_diff(Lk,Lk)) ; ik_diff=0
     do ik=1,Lk
        do jk=1,Lk
           ! 
           kdiff = kgrid(ik,:) - kgrid(jk,:)
-
-          !continue from here; too tired tonight
+          !
           itmp = dot_product(e1,kdiff)/2.d0/pi
           jtmp = dot_product(e2,kdiff)/2.d0/pi
           !
-          do while(itmp.ge.1.d0) 
-             itmp = itmp - 1.d0
-          end do
-          do while(itmp.lt.0.d0) 
-             itmp = itmp + 1.d0
-          end do
-          write(700,*) jtmp
-          do while(jtmp.ge.1.d0) 
-             jtmp = jtmp - 1.d0
-          end do
-          do while(jtmp.lt.0.d0) 
-             jtmp = jtmp + 1.d0
-          end do
-          write(701,*) jtmp
-
-
           idiff = nint(Nk*itmp)+1
           jdiff = nint(Nk*jtmp)+1          
+
+          !
+          do while(idiff.gt.Nk) 
+             idiff = idiff - Nk
+          end do
+          do while(idiff.lt.1) 
+             idiff = idiff + Nk
+          end do
+          !
+          do while(jdiff.gt.Nk) 
+             jdiff = jdiff - Nk
+          end do
+          do while(jdiff.lt.1) 
+             jdiff = jdiff + Nk
+          end do
+          !
+          ! write(700,*) jtmp
+          ! do while(jtmp.ge.1.d0) 
+          !    jtmp = jtmp - 1.d0
+          ! end do
+          ! do while(jtmp.lt.0.d0) 
+          !    jtmp = jtmp + 1.d0
+          ! end do
+          ! write(701,*) jtmp
+
+
           if(idiff.lt.1.or.idiff.gt.Nk) then
              if(master) write(*,*) idiff,itmp,ik,jk
              call mpi_stop('idiff.lt.1.or.idiff.gt.Nk')
@@ -411,14 +727,24 @@ contains
              call mpi_stop('jdiff.lt.1.or.jdiff.gt.Nk')
           end if
           ik_diff(ik,jk) = ij2ik(idiff,jdiff)
-          if(ik.eq.1) then
-             write(800,*) kdiff,kgrid(ik_diff(ik,jk),:)
+          if(ik.eq.test_strides) then             
+             write(800,*) kgrid(ik,:),kgrid(jk,:),kdiff,kgrid(ik_diff(ik,jk),:)
+             !
+             write(900,*) kgrid(ik,:)
+             write(900,*) kgrid(jk,:)
+             write(900,*) kgrid(ik_diff(ik,jk),:)
+             write(900,*)
+             write(900,*)
+             !
+             write(901,*) kdiff
+             write(901,*)
+             write(901,*)
+             !
           end if
        end do
     end do
     !
     !
-    call mpi_stop
     !
   end subroutine build_hk_honeycomb
 
