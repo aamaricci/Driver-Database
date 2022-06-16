@@ -28,9 +28,12 @@ program ed_bilayer
   real(8),dimension(:),allocatable :: int_tmp_im
 
   real(8),dimension(:),allocatable :: epp_tmp
-  real(8)   :: epsilonp
+  real(8)   :: epsilonp,epsX
   complex(8) :: wcmplx
   real(8) :: wp,mx,mel,bwp,wtmp,ImL
+
+  logical :: hartree
+  real(8) :: ndop
   !  
   character(len=16)                           :: finput
   !MPI Vars:
@@ -57,10 +60,11 @@ program ed_bilayer
   call parse_input_variable(lp,"lp",finput,default=100,comment='number of points for momenutm integration (modulus)')
   call parse_input_variable(lphi,"lphi",finput,default=100,comment='number of points for momenutm integration (phase)')
 
+  call parse_input_variable(epsX,"epsX",finput,default=1.d-3,comment='linewidth exciton')
 
   call parse_input_variable(mX,"mX",finput,default=1.d0,comment='mass enhancement exciton')
   call parse_input_variable(mel,"mel",finput,default=1.d0,comment='mass enhancement electron')
-
+  call parse_input_variable(hartree,"hartree",finput,default=.true.,comment='include the hartree term to the Sigma_X')
   !
   call ed_read_input(trim(finput),comm)
   !
@@ -91,7 +95,7 @@ program ed_bilayer
   allocate(epp_tmp(lphi)); epp_tmp=0.d0
 
   do iw=1+rank,lreal,mpiSize     
-     wcmplx=wr(iw) + xi*eps
+     wcmplx=wr(iw) + xi*epsX
      
      if(master) write(*,*) iw
      
@@ -194,10 +198,18 @@ program ed_bilayer
   !
   Sigma = Im_sigma_tmp + xi*Im_sigma
   !
+  if(hartree) then
+     ndop=0.d0
+     int_tmp=0.d0
+     int_tmp = fermi(h0*0.5*modp(:)**2.d0-Ef,beta)*modp(:)/(2d0*pi)          
+     ndop=trapz(int_tmp,modp(1),modp(lp))      
+     Sigma = Sigma+Vex*ndop
+  end if
+
   
   allocate(Dx(lreal));Dx=0.d0
   do iw=1,Lreal
-     wcmplx = wr(iw) + xi*eps
+     wcmplx = wr(iw) + xi*epsX
      Dx(iw) = 1.d0/(wcmplx-wx-Sigma(iw))
   end do
   if(rank==0) then

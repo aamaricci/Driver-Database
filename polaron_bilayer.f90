@@ -42,6 +42,9 @@ program ed_bilayer
   logical                                     :: fix_mu,flag_mpi,printG
   logical                                     :: fixing_newton
 
+  real(8),dimension(:,:),allocatable :: kgrid
+
+
   character(len=6)     :: fix_mu_scheme           !newton/f_zero
 
   !
@@ -51,7 +54,7 @@ program ed_bilayer
   call StartMsg_MPI(comm)
   rank = get_Rank_MPI(comm)
   master = get_Master_MPI(comm)
-  
+  !
 
   !Parse additional variables && read Input && read H(k)^4x4
   call parse_cmd_variable(finput,"FINPUT",default='inputED_BL.in')  
@@ -65,26 +68,17 @@ program ed_bilayer
   call parse_input_variable(Vnn,"Vnn",finput,default=0.d0)
   call parse_input_variable(ntop,"ntop",finput,default=1.d0)
   call parse_input_variable(nbot,"nbot",finput,default=1.d0)
-  
+  !
   call parse_input_variable(alpha_mu,"alpha_mu",finput,default=0.5d0)
-
   call parse_input_variable(fix_mu,"fix_mu",finput,default=.false.)
-
   call parse_input_variable(flag_mpi,"flag_mpi",finput,default=.false.)
-  call parse_input_variable(conv_dens,"conv_dens",finput,default=.false.)
-  
+  call parse_input_variable(conv_dens,"conv_dens",finput,default=.false.)  
   call parse_input_variable(dens_error,"dens_error",finput,default=1.d-5)
-
   call parse_input_variable(wmixing,"WMIXING",finput,default=0.5d0)
-
   call parse_input_variable(wmixing_dens,"WMIXING_DENS",finput,default=0.5d0)
-
   call parse_input_variable(ntarget,"NTARGET",finput,default=2d0)
-
   call parse_input_variable(fix_mu_scheme,"fix_mu_scheme",finput,default='f_zero')
-
   call parse_input_variable(printG,"printG",finput,default=.true.)
-
   !
   call ed_read_input(trim(finput),comm)
   !
@@ -305,10 +299,9 @@ contains
   subroutine build_hk_honeycomb(file)
     character(len=*),optional          :: file
     real(8),dimension(2)               :: pointK,pointKp,pointM
-    real(8),dimension(:,:),allocatable :: KPath
-    real(8),dimension(:,:),allocatable :: kgrid
+    real(8),dimension(:,:),allocatable :: KPath,kgrid_tmp
     real(8),dimension(:),allocatable   :: gridx,gridy
-    integer                            :: i,j,ik
+    integer                            :: i,j,ik,unit_io
     !
     Lk= Nk*Nk
     if(master)write(*,*)"Build H(k) for the honeycomb lattice:",Lk
@@ -318,7 +311,7 @@ contains
     !
     allocate(Hk(Nlso,Nlso,Lk));Hk=zero
     !
-    call TB_build_model(Hk,hk_honeycomb,Nlso,[Nk,Nk],iprint=.true.)
+    call TB_build_model(Hk,hk_honeycomb,Nlso,[Nk,Nk],iprint=.true.,kgrid_out=kgrid_tmp)
     if(present(file).and.master) call TB_write_Hk(Hk,file,1,Nspin,Norb,[Nk,Nk])
     !
     pointK  = 1d0/3d0*bk1 + 2d0/3d0*bk2
@@ -337,6 +330,31 @@ contains
          points_name=[character(len=10) :: "G","K","K`","G"],&
          file="Eigenbands.nint",iproject=.false.)
     !
+    
+    allocate(gridx(Nk)); gridx=linspace(0d0,1d0,Nk,iend=.false.)
+    allocate(gridy(Nk)); gridy=linspace(0d0,1d0,Nk,iend=.false.)
+
+    allocate(kgrid(Lk,2)); kgrid=0.d0
+    ik=0
+    do i=1,Nk
+       do j=1,Nk
+          ik=ik+1
+          kgrid(ik,:) = gridx(i)*bk1+gridx(j)*bk2
+       end do       
+    end do
+
+    if(master) then
+       unit_io=free_unit()
+       open(unit_io,file='kgrid_driver.out')
+       do ik=1,Lk
+          write(unit_io,*) kgrid_tmp(ik,:),kgrid(ik,:)
+       end do
+       close(unit_io)
+    end if
+    ! continue from here, now too tired 
+    !
+    call mpi_barrier(comm,mpiERR)
+    stop
     !
   end subroutine build_hk_honeycomb
 
