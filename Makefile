@@ -3,8 +3,7 @@
 #$ COMPILER: supported compilers are ifort, gnu >v4.7 or use mpif90
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default if $HOME/.bin in the PATH)
-#EXE=exciton_polaron_2dgas
-EXE=polaron_bilayer
+EXE=bhz_2d_mf_fluct
 #EXE=ed_bilayer_hc
 #EXE=ed_bilayer_square
 #EXE=ed_hm_square

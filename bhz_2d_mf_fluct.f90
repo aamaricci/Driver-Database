@@ -136,16 +136,16 @@ program bhz_2d
   call save_array("params.init",params)
 
 
-  open(free_unit(unit),file="chi0.dat ")
+  open(free_unit(unit),file="chi0_q0.dat ")
   p_work   = params
   qvec_work= [0d0,0d0]
   do m=-Lb,Lb
      call Intk_SumMats_Chi_qv(m,Chi_qv)
-     write(unit,*) 2d0*pi*m/beta, Chi_qv(1,1),Chi_qv(2,2),Chi_qv(1,2)
+     write(unit,*)2d0*pi*m/beta, Chi_qv(1,1),Chi_qv(2,2),Chi_qv(1,2)
   end do
   close(unit)
 
-  
+
   converged=.false. ; iter=0
   do while(.not.converged.AND.iter<maxiter)
      iter=iter+1
@@ -179,21 +179,27 @@ program bhz_2d
   call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
 
 
-  open(free_unit(unit),file="chi.dat ")
+  open(free_unit(unit),file="chi_q0.dat ")
   p_work   = params
+  Chi = 0d0
   do m=-Lb,Lb
      qvec_work=[0d0,0d0]
      call Intk_SumMats_Chi_qv(m,Chi_qv)
      write(unit,*) 2d0*pi*m/beta, Chi_qv(1,1),Chi_qv(2,2),Chi_qv(1,2)
-     !
-     do ik=1,Nktot        
+  enddo
+  close(unit)
+  if(check_nel)then
+     do ik=1,Nktot
         qvec_work=Kgrid(ik,:)
-        call Intk_SumMats_Chi_qv(m,Chi_qv)
-        Chi = Chi + Chi_qv/Nktot/beta
-     enddo
-  end do
-  write(*,*)Chi(1,1),Chi(2,2),Chi(1,2)
-  close(unit)     
+        do m=-Lb,Lb
+           call Intk_SumMats_Chi_qv(m,Chi_qv)
+           Chi = Chi + Chi_qv/Nktot/beta
+        enddo
+     end do
+     write(*,*)Chi(1,1),Chi(2,2),Chi(1,2)
+  endif
+
+
 
 
 contains
@@ -381,9 +387,11 @@ contains
     real(8)                 :: chi_pm_n_plus_m_t,chi_pm_n_minus_m_t,chi_pm_t
     real(8)                 :: Den_n__n_plus_m,Den_n__n_minus_m
     real(8)                 :: Mk_t, Mkq_t, Ek_t, Ekq_t
-    real(8)                 :: tail_num(2,2), tail_den, tail, nu       
+    real(8)                 :: tail_num(2,2),tail(2,2),tail_den,  nu       
     integer                 :: ik,n
-    real(8)                 :: kx,ky,qx,qy,vkq,sgn_m,Tfactor,chi_pp_t_sum,chi_mm_t_sum,chi_pm_t_sum
+    real(8)                 :: kx,ky,qx,qy,vkq,Tfactor,chi_pp_t_sum,chi_mm_t_sum,chi_pm_t_sum
+
+
 
     ReSigma(1:L) = p_work(1:L)     ; ReSigma(-L:-1)=ReSigma(1:L) ; ReSigma(0) = 0d0
     ImSigma(1:L) = p_work(L+1:2*L) ; ImSigma(-L:-1)=-ImSigma(1:L); ImSigma(0) = 0d0    
@@ -396,7 +404,7 @@ contains
     qx           = qvec_work(1)
     qy           = qvec_work(2)
     nu           = 2*m*pi/beta
-    sgn_m        = 1d0;if(m<0)sgn_m=-1d0;if(m==0)sgn_m=0d0
+    !
     do ik=1,Nktot
        kvec       = Kgrid(ik,:)
        kx         = kvec(1)
@@ -445,46 +453,76 @@ contains
           chi_pp_n_plus_m      = (-zn*zn_plus_m  + Mk_n*Mk_plus_q__n_plus_m)/Den_n__n_plus_m
           chi_pp_n_minus_m     = (-zn*zn_minus_m + Mk_n*Mk_plus_q__n_minus_m)/Den_n__n_minus_m
           chi_pp               = chi_pp_n_plus_m + chi_pp_n_minus_m
+          Chi(1,1)             = Chi(1,1) - 2d0*chi_pp/beta/Nktot
           !
           chi_pp_n_plus_m_t    = (-wn*wn_plus_m + Mkq_t*Mk_t)/(wn**2+Ek_t)/(wn_plus_m**2+Ekq_t)
           chi_pp_n_minus_m_t   = (-wn*wn_minus_m + Mkq_t*Mk_t)/(wn**2+Ek_t)/(wn_minus_m**2+Ekq_t)
           chi_pp_t             = chi_pp_n_plus_m_t + chi_pp_n_minus_m_t
-          Chi(1,1)             = Chi(1,1) - 2d0*(chi_pp-chi_pp_t)/beta/Nktot
+          Chi(1,1)             = Chi(1,1) + 2d0*chi_pp_t/beta/Nktot
           !
           !
-          !Chi_--
+          !Chi_--          
           chi_mm_n_plus_m      = vkq/Den_n__n_plus_m
           chi_mm_n_minus_m     = vkq/Den_n__n_minus_m
           chi_mm               = chi_mm_n_plus_m + chi_mm_n_minus_m
+          Chi(2,2)             = Chi(2,2) - 2d0*chi_mm/beta/Nktot
           !
           chi_mm_n_plus_m_t    = vkq/(wn**2+Ek_t)/(wn_plus_m**2+Ekq_t)
           chi_mm_n_minus_m_t   = vkq/(wn**2+Ek_t)/(wn_minus_m**2+Ekq_t)
           chi_mm_t             = chi_mm_n_plus_m_t + chi_mm_n_minus_m_t
-          Chi(2,2)             = Chi(2,2) - 2d0*(chi_mm-chi_mm_t)/beta/Nktot
+          Chi(2,2)             = Chi(2,2) + 2d0*chi_mm_t/beta/Nktot
           !
           !
           !Chi_+-
           chi_pm_n_plus_m      = (zn*Mk_plus_q__n_plus_m   + zn_plus_m*Mk_n)/Den_n__n_plus_m
           chi_pm_n_minus_m     = (zn*Mk_plus_q__n_minus_m  + zn_minus_m*Mk_n)/Den_n__n_minus_m
           chi_pm               = chi_pm_n_plus_m - chi_pm_n_minus_m
-          !
-          chi_pm_n_plus_m_t    = (wn*Mkq_t + wn_plus_m*Mk_t)/(wn**2 +Ek_t)/(wn_plus_m**2   + Ekq_t)
-          chi_pm_n_minus_m_t   = (wn*Mkq_t + wn_minus_m*Mk_t)/(wn**2+Ek_t)/(wn_minus_m**2 + Ekq_t)
-          chi_pm_t             = chi_pm_n_plus_m_t - chi_pm_n_minus_m_t
           Chi(1,2)             = Chi(1,2) - 4d0*chi_pm/beta/Nktot
-          ! Chi(1,2)             = Chi(1,2) - 4d0*sgn_m*(chi_pm-chi_pm_t)/beta/Nktot
+          !
+          ! chi_pm_n_plus_m_t    = (wn*Mkq_t + wn_plus_m*Mk_t)/(wn**2 +Ek_t)/(wn_plus_m**2   + Ekq_t)
+          ! chi_pm_n_minus_m_t   = (wn*Mkq_t + wn_minus_m*Mk_t)/(wn**2+Ek_t)/(wn_minus_m**2 + Ekq_t)
+          ! chi_pm_t             = chi_pm_n_plus_m_t - chi_pm_n_minus_m_t
+          ! Chi(1,2)             = Chi(1,2) + 4d0*chi_pm_t/beta/Nktot
           Chi(2,1)             = Chi(1,2)
        enddo
        !
-       if(m/=0)then
-          Tfactor       = 2d0*tanh(0.5d0*beta*sqrt(Ek_t))/sqrt(Ek_t)
-          tail_den      = ((Ekq_t-Ek_t)**2d0 + 2d0*(Ekq_t+Ek_t)*nu**2d0 + nu**4d0)
+       !
+       !
+       Tfactor       = 2d0*tanh(0.5d0*beta*sqrt(Ek_t))/sqrt(Ek_t)
+       eps = abs(Ekq_t-Ek_t)
+       if(m==0)then
+          !in this case eps=0 by construction so we have a specific expression
+          tail(1,1)        =  Tfactor*((xk**2 + yk**2)/4d0/Ek_t)
+          tail(2,2)        = -Tfactor*(vkq/4d0/Ek_t)
+          tail(1,2)        = 0d0
+          tail(2,1)        = 0d0
+          !
+       elseif(m==0.AND.(qx/=0d0.OR.qy/=0))then
+          if(eps<1d-3)then
+             !in this case eps can be small, you have to handle it separately
+             tail(1,1)     = -Tfactor*(Ek_t + Mk_t*Mkq_t)*(2d0 - (Ekq_t-Ek_t))
+             tail(2,2)     = -Tfactor*vkq*(2d0 - (Ekq_t-Ek_t))
+             tail(1,2)     = 0d0
+             tail(2,1)     = 0d0
+          else
+             !if eps is not small, then use regular expression
+             tail_num(1,1) = -Tfactor*(Ek_t + Mk_t*Mkq_t)
+             tail_num(2,2) = -Tfactor*vkq
+             tail_num(1,2) = 0d0
+             tail_num(2,1) = 0d0
+             tail_den      = (Ekq_t-Ek_t)
+             tail          = tail_num/tail_den
+          endif
+       else
+          ! m and q generic
           tail_num(1,1) = Tfactor*((Ek_t-Ekq_t)*(Ek_t + Mk_t*Mkq_t) + (Ek_t - Mk_t*Mkq_t)*nu**2d0)
           tail_num(2,2) = Tfactor*(vkq*(Ek_t - Ekq_t - nu**2d0))
-          tail_num(1,2) = 0d0!4d0*(Ekq_t - Ek_t)*(Mk_t + Mkq_t) + nu**2*(Mkq_t - Mk_t)
-          tail_num(2,1) = 0d0!tail_num(1,2)
-          Chi           = Chi + tail_num/tail_den/Nktot
+          tail_num(1,2) = 0d0
+          tail_num(2,1) = 0d0
+          tail_den      = ((Ekq_t-Ek_t)**2d0 + 2d0*(Ekq_t+Ek_t)*nu**2d0 + nu**4d0)
+          tail          = tail_num/tail_den
        endif
+       Chi = Chi + tail/Nktot
     enddo
   end subroutine Intk_SumMats_Chi_qv
 
