@@ -174,8 +174,12 @@ program bhz_2d
      params_prev = params
      !
      converged = check_convergence_local(params,it_error,nsuccess,maxiter) 
-     if(master)call save_array("params.iter"//str(iter,4),params)
-     !
+     if(master)then
+        call save_array("params.iter"//str(iter,4),params)
+        open(free_unit(unit),file="tz_dtz_all.dat",access='append')
+        write(unit,*)iter,params(2*L+1),params(2*L+2)
+        close(unit)
+     endif
      call end_loop
   end do
   call save_array("params.restart",params)
@@ -221,7 +225,9 @@ program bhz_2d
   endif
 
 
+  call finalize_MPI()
 
+  
 contains
 
 
