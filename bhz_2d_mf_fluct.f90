@@ -2,6 +2,8 @@ program bhz_2d
   !LIBRARIES:
   USE SCIFOR
   USE DMFT_TOOLS
+  !
+  USE MPI
   implicit none
   !
   !SET THE DIMENSION OF THE PROBLEM
@@ -44,7 +46,7 @@ program bhz_2d
   integer                                     :: m_work
   !
   integer                                     :: Nparams
-  integer                                     :: i,j,k,ik,m
+  integer                                     :: i,j,k,ik,m,n
   integer                                     :: info,unit
   real(8)                                     :: x(1),dx(1),ran(10)
   logical                                     :: iexist
@@ -56,6 +58,18 @@ program bhz_2d
   real(8),dimension(:),allocatable            :: params
   real(8),dimension(:),allocatable            :: params_prev
   real(8),dimension(2,2)                      :: Chi_qv,Chi
+  !MPI Vars:
+  integer                                     :: comm,ierr,mpiId,mpiSize
+  logical                                     :: master
+
+  call init_MPI()
+  comm = MPI_COMM_WORLD
+  call StartMsg_MPI(comm)
+  mpiId  = get_Rank_MPI(comm)
+  mpiSize= get_Size_MPI(comm)
+  master = get_Master_MPI(comm)
+
+
 
   call parse_cmd_variable(Finput,"FINPUT",default="input.conf")
   call parse_input_variable(gt,"GT",Finput,default=1d0)
@@ -97,25 +111,25 @@ program bhz_2d
   gammaN = kron_pauli( pauli_sigma_0, pauli_tau_0)
   Nky    = Nkx
   Nktot  = Nkx*Nky
-  print*,Nktot
   !
   L      = Lf+Lb
-  write(*,*)"Using L freq.=",L
+  if(master)write(*,*)"Using L freq.=",L
 
 
   !>SOLVE MF PROBLEM 1st: >>ACTHUNG<< This solution does not use BZ basis defined later!!
-  call start_timer()
+
+  if(master)call start_timer()
   x(1)=-abs(tz0)
   dx(1)=0.1d0
   call fmin(bhz_f,x,lambda=dx)
   Tz=x(1)
-  open(free_unit(unit),file="mf_TzVSg.dat")
-  write(unit,*)gt,gn,Tz
-  close(unit)
-  write(*,*) "Tz=",Tz
-  call stop_timer(" Mean-Field")
-  call sleep(1)
-
+  if(master)then
+     open(free_unit(unit),file="mf_TzVSg.dat")
+     write(unit,*)gt,gn,Tz
+     close(unit)
+     write(*,*) "Tz=",Tz
+     call stop_timer(" Mean-Field")      
+  endif
 
 
   !> SOLVE FLUCTUATIONS:
@@ -131,20 +145,23 @@ program bhz_2d
 
   !Start from MF solution
   params = [dble(zeros(L)),dble(zeros(L)),Tz,abs(dplus0)]
-  inquire(file="params.restart",exist=iexist)
-  if(iexist)call read_array("params.restart",params)
-  call save_array("params.init",params)
+  if(master)then
+     inquire(file="params.restart",exist=iexist)
+     if(iexist)call read_array("params.restart",params)
+     call save_array("params.init",params)
+  endif
+  call bcast_MPI(comm,params)
 
-
-  open(free_unit(unit),file="chi0_q0.dat ")
-  p_work   = params
-  qvec_work= [0d0,0d0]
-  do m=-Lb,Lb
-     call Intk_SumMats_Chi_qv(m,Chi_qv)
-     write(unit,*)2d0*pi*m/beta, Chi_qv(1,1),Chi_qv(2,2),Chi_qv(1,2)
-  end do
-  close(unit)
-
+  if(master)then
+     open(free_unit(unit),file="chi0_q0.dat ")
+     p_work   = params
+     qvec_work= [0d0,0d0]
+     do m=-Lb,Lb
+        call Intk_SumMats_Chi_qv(m,Chi_qv)
+        write(unit,*)2d0*pi*m/beta, Chi_qv(1,1),Chi_qv(2,2),Chi_qv(1,2)
+     end do
+     close(unit)
+  endif
 
   converged=.false. ; iter=0
   do while(.not.converged.AND.iter<maxiter)
@@ -157,16 +174,18 @@ program bhz_2d
      params_prev = params
      !
      converged = check_convergence_local(params,it_error,nsuccess,maxiter) 
+     if(master)call save_array("params.iter"//str(iter,4),params)
      !
      call end_loop
   end do
-  call save_array("params.restart",params)	!ok forse va salvato anche dSigma, ma only last step(?)
+  call save_array("params.restart",params)
   !
-  open(free_unit(unit),file="tz_dtzVSg.dat")
-  write(unit,*)gt,gn,params(2*L+1),params(2*L+2)
-  close(unit)
-  write(*,*) "Tz, d+=",params(2*L+1),params(2*L+2)
-
+  if(master)then
+     open(free_unit(unit),file="tz_dtzVSg.dat")
+     write(unit,*)gt,gn,params(2*L+1),params(2*L+2)
+     close(unit)
+     write(*,*) "Tz, d+=",params(2*L+1),params(2*L+2)
+  endif
 
   allocate(Smats(Nspin,Nspin,Norb,Norb,L))
   allocate(Gmats(Nspin,Nspin,Norb,Norb,L))
@@ -179,26 +198,27 @@ program bhz_2d
   call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
 
 
-  open(free_unit(unit),file="chi_q0.dat ")
-  p_work   = params
-  Chi = 0d0
-  do m=-Lb,Lb
-     qvec_work=[0d0,0d0]
-     call Intk_SumMats_Chi_qv(m,Chi_qv)
-     write(unit,*) 2d0*pi*m/beta, Chi_qv(1,1),Chi_qv(2,2),Chi_qv(1,2)
-  enddo
-  close(unit)
-  if(check_nel)then
-     do ik=1,Nktot
-        qvec_work=Kgrid(ik,:)
-        do m=-Lb,Lb
-           call Intk_SumMats_Chi_qv(m,Chi_qv)
-           Chi = Chi + Chi_qv/Nktot/beta
-        enddo
-     end do
-     write(*,*)Chi(1,1),Chi(2,2),Chi(1,2)
+  if(master)then
+     open(free_unit(unit),file="chi_q0.dat ")
+     p_work   = params
+     Chi = 0d0
+     do m=-Lb,Lb
+        qvec_work=[0d0,0d0]
+        call Intk_SumMats_Chi_qv(m,Chi_qv)
+        write(unit,*) 2d0*pi*m/beta, Chi_qv(1,1),Chi_qv(2,2),Chi_qv(1,2)
+     enddo
+     close(unit)
+     if(check_nel)then
+        do ik=1,Nktot
+           qvec_work=Kgrid(ik,:)
+           do m=-Lb,Lb
+              call Intk_SumMats_Chi_qv(m,Chi_qv)
+              Chi = Chi + Chi_qv/Nktot/beta
+           enddo
+        end do
+        write(*,*)Chi(1,1),Chi(2,2),Chi(1,2)
+     endif
   endif
-
 
 
 
@@ -250,7 +270,6 @@ contains
     !
     p_work = p
     !
-    print*,"Integrating F_System:",Nktot
     select case(OrderInt)
     case default
        integral  = 0d0
@@ -261,7 +280,6 @@ contains
     case(1)
        integral  = trapz2d_system(Nparams,fk_system,[0d0,pi2],[0d0,pi2],Nkx,Nkx)/pi2/pi2
     end select
-    call sleep(2)
     !
     resigma   = integral(1:L)
     ImSigma   = integral(L+1:2*L)
@@ -286,12 +304,12 @@ contains
           end do
        end do
        N_el = sum(n_k)/Nktot
-       write(*,*)N_el
-       call splot("Sigma_iw_iter"//str(iter,3)//".dat",pi/beta*(2*arange(1,L)-1),dcmplx(ReSigma(:),ImSigma(:)))
+       if(master)write(*,*)"N=",N_el
+       if(master)call splot("Sigma_iw_iter"//str(iter,3)//".dat",pi/beta*(2*arange(1,L)-1),dcmplx(ReSigma(:),ImSigma(:)))
     endif
-    write(*,*)"Tz             =",Tz
-    write(*,*)"D+             =",dPlus
-    write(*,*)"ReS(1), ImS(1) =",ReSigma(1),ImSigma(1)
+    if(master)write(*,*)"Tz             =",Tz
+    if(master)write(*,*)"D+             =",dPlus
+    if(master)write(*,*)"ReS(1), ImS(1) =",ReSigma(1),ImSigma(1)
     return
   end subroutine solve_eqs
 
@@ -306,7 +324,8 @@ contains
     integer                :: n,m,ik,iq
     real(8)                :: kx,ky
     real(8),dimension(L)   :: ReSigma,ImSigma
-    real(8)                :: ReS(L),ImS(L)
+    real(8),dimension(L)   :: ReSTmp,ImSTmp
+    real(8),dimension(L)   :: ReS,ImS
     real(8)                :: Tz,dTz,dPlus
     real(8)                :: TzTmp,dTzTmp,dPlusTmp
     real(8)                :: z,simZ
@@ -337,30 +356,41 @@ contains
     !Sum over Matsubara frequencies first:
     ReS       = 0d0
     ImS       = 0d0
+    !
+    ReSTmp    = 0d0
+    ImSTmp    = 0d0
     TzTmp     = 0d0
     dPlusTmp  = 0d0
-    do n=1,L
+    do n=1+mpiId,L,mpiSize
        z      = pi/beta*(2*n-1)
        simZ   = z - ImSigma(n)  !modulo a factor xi
        Meff   = Mh - Tz*gt + ek + ReSigma(n)
        simEk  = Meff**2 + xk**2 + yk**2
        Den    = z**2    + simEk
        TzTmp  = TzTmp  - 2d0*Meff/Den !Sum over n
-       ReS(n) = -Meff/Den*dPlus
-       ImS(n) = -simZ/Den*dPlus
+       ReSTmp(n) = -Meff/Den*dPlus
+       ImSTmp(n) = -simZ/Den*dPlus
+       if(n==1.AND.kx==0.AND.ky==0)print*,ImSTmp(n),SimZ/Den,dPlus,Meff,Mh - Tz*gt + ek,ReSTmp(n)
     enddo
+    call AllReduce_MPI(comm,ReSTmp,ReS)
+    call AllReduce_MPI(comm,ImSTmp,ImS)
+    Tz = 0d0
+    call AllReduce_MPI(comm,TzTmp,Tz)
     !
     !Int(k) Chi({q,m};k) = Int(k)Sum(n) Chi({q,m};{k,n})
-    do m=-Lb,Lb       
+    do n=0+mpiId,2*Lb,mpiSize
+       m = -Lb + n !m=-Lb,Lb       
        call Intk_SumMats_Chi_qv(m,ChiTmp)
        Den       = (ChiTmp(1,1) + gminus)**2 - ChiTmp(1,2)**2 - (ChiTmp(2,2) + gplus)**2
        dPlusTmp  = dPlusTmp  -2d0*(ChiTmp(1,1) + gminus)/Den - (gt-gn)/2d0  
     enddo
+    dPlus = 0d0
+    call AllReduce_MPI(comm,dPlusTmp,dPlus)
     !
-    integral(1:L)     = ReS                !ReSigma(k)
-    integral(L+1:2*L) = ImS                !ImSigma(k)
-    integral(2*L+1)   = 2d0*TzTmp/beta     !Tz(k)
-    integral(2*L+2)   = dPlusTmp/beta     !d+(q)
+    integral(1:L)     = ReS            !ReSigma(k)
+    integral(L+1:2*L) = ImS            !ImSigma(k)
+    integral(2*L+1)   = 2d0*Tz/beta    !Tz(k)
+    integral(2*L+2)   = dPlus/beta     !d+(q)
   end function fk_system
 
 
