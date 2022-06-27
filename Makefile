@@ -2,19 +2,20 @@
 #$ DRIVER NAME without .f90 extension
 #$ COMPILER: supported compilers are ifort, gnu >v4.7 or use mpif90
 #$ PLATFORM: supported platform are intel, gnu
-#$ EXECUTABLE TARGET DIRECTORY (default if $HOME/.bin in the PATH)
-EXE=bhz_2d_mf_fluct
+#$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
+#EXE=bhz_2d_mf_fluct
 #EXE=ed_bilayer_hc
 #EXE=ed_bilayer_square
-#EXE=ed_hm_square
+EXE=ed_hm_square
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
 
 # LIBRARIES TO BE INCLUDED
 #$ LIB_ED: either use *edlat* or *dmft_ed* (until we fix the naming conventions)
-#$ LIB_SS: specify slave spins library is any
+#$ LIB_SS: specify slave spins library if any
 LIB_ED=dmft_ed
+#LIB_SS=slave_spins
 
 
 

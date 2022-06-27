@@ -4,13 +4,15 @@ program ed_hm_square
   USE DMFT_TOOLS
   USE MPI
   implicit none
-  integer                                       :: iloop,Nb,Lk,Nx,Nso,ik,iorb
+  integer                                       :: iloop,Nb,Lk,Nx,Nso,ik,iorb,irepl
   logical                                       :: converged
-  real(8)                                       :: wband,wmixing
+  real(8)                                       :: wband,wmixing,onsite
   real(8),dimension(5)                          :: ts,Dband
   real(8),dimension(:),allocatable              :: dens
   !Bath:
   real(8),allocatable                           :: Bath(:),Bath_(:)
+  real(8),dimension(:,:),allocatable            :: lambdasym_vectors
+  complex(8),dimension(:,:,:,:,:),allocatable   :: Hsym_basis
   !The local hybridization function:
   complex(8),allocatable                        :: Hloc(:,:,:,:)
   complex(8),allocatable,dimension(:,:,:,:,:)   :: Gmats
@@ -55,6 +57,8 @@ program ed_hm_square
   call add_ctrl_var(wini,"wini")
   call add_ctrl_var(wfin,"wfin")
   call add_ctrl_var(eps,"eps")
+  call add_ctrl_var(nbath,"nbath")
+  call add_ctrl_var(ed_hw_bath,"ed_hw_bath")
 
   if(Nspin/=1.OR.Norb>5)stop "Wrong setup from input file: Nspin/=1 OR Norb>5"
   Nso=Nspin*Norb
@@ -83,11 +87,47 @@ program ed_hm_square
                              Norb=Norb,&
                              Nkvec=[Nx,Nx])
 
-  !Setup solver
-  Nb=ed_get_bath_dimension()
+
+  !Setup Bath
+  select case(bath_type)
+      case default
+         stop "Wrong setup from input file: bath_type has to be 'normal' or 'replica'"
+      case("normal")
+         !
+         Nb=ed_get_bath_dimension()
+         !
+      case("replica")
+         !
+         allocate(lambdasym_vectors(Nbath,1)) !Nsym=1
+         allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,1))
+         !
+         Hsym_basis(:,:,:,:,1) = so2nn(zeye(Nso)) !Replica onsite energy
+         !
+         write(*,*) "Replica initialization: ed_hw_bath="//str(ed_hw_bath)
+         !
+         do irepl=1,Nbath
+            onsite = irepl -1 - (Nbath-1)/2d0        ![-(Nbath-1)/2:(Nbath-1)/2]
+            onsite = onsite * 2*ed_hw_bath/(Nbath-1) !P-H symmetric band, -ed_hw_bath:ed_hw_bath
+            lambdasym_vectors(irepl,1) = onsite      !Multiplies the suitable identity 
+         enddo
+         !
+         if(mod(Nbath,2)==0)then
+            lambdasym_vectors(Nbath/2,1) = -1d-1    !Much needed small energies around
+            lambdasym_vectors(Nbath/2+1,1) = 1d-1   !the fermi level. (for even Nbath)
+         endif
+         !
+         call ed_set_Hreplica(Hsym_basis,lambdasym_vectors)
+         Nb=ed_get_bath_dimension(Hsym_basis)
+         !
+  end select
+  !
   allocate(bath(Nb))
-  allocate(Bath_(Nb))
+  allocate(bath_(Nb))
+  bath_ = zero
+  !
+  !Setup solver
   call ed_init_solver(comm,bath)
+
 
 
 
@@ -234,6 +274,52 @@ contains
   end subroutine print_luttinger
 
 
+
+  !+---------------------------------------------------------------------------+
+  !PURPOSE : reshape from [Nso]x[Nso] matrix to [Nspin,Nspin,Norb,Norb] array
+  !+---------------------------------------------------------------------------+
+  function so2nn(Hlso) result(Hnnn)
+   complex(8),dimension(Nspin*Norb,Nspin*Norb) :: Hlso
+   complex(8),dimension(Nspin,Nspin,Norb,Norb) :: Hnnn
+   integer                                     :: iorb,jorb
+   integer                                     :: ispin,jspin
+   integer                                     :: is,js
+   Hnnn=zero
+   do ispin=1,Nspin
+      do jspin=1,Nspin
+         do iorb=1,Norb
+            do jorb=1,Norb
+               is = iorb + (ispin-1)*Norb
+               js = jorb + (jspin-1)*Norb
+               Hnnn(ispin,jspin,iorb,jorb) = Hlso(is,js)
+            enddo
+         enddo
+      enddo
+   enddo
+ end function so2nn
+
+ !+---------------------------------------------------------------------------+
+ !PURPOSE : reshape from [Nspin,Nspin,Norb,Norb] array to [Nso]x[Nso] matrix
+ !+---------------------------------------------------------------------------+
+ function nn2so(Hnnn) result(Hlso)
+   complex(8),dimension(Nspin,Nspin,Norb,Norb) :: Hnnn
+   complex(8),dimension(Nspin*Norb,Nspin*Norb) :: Hlso
+   integer                                     :: iorb,jorb
+   integer                                     :: ispin,jspin
+   integer                                     :: is,js
+   Hlso=zero
+   do ispin=1,Nspin
+      do jspin=1,Nspin
+         do iorb=1,Norb
+            do jorb=1,Norb
+               is = iorb + (ispin-1)*Norb
+               js = jorb + (jspin-1)*Norb
+               Hlso(is,js) = Hnnn(ispin,jspin,iorb,jorb)
+            enddo
+         enddo
+      enddo
+   enddo
+ end function nn2so
 
 end program ed_hm_square
 
