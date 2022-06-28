@@ -55,6 +55,8 @@ program ed_bilayer
   real(8),dimension(:),allocatable :: wrX,wr_tmp,wr
   complex(8)           :: wcmplx
   complex(8),dimension(:),allocatable :: DX
+  complex(8),dimension(:,:),allocatable :: DX_dressed
+
   character(len=6)     :: fix_mu_scheme           !newton/f_zero
   real(8),dimension(:,:),allocatable :: Aloc,Ak_test
     
@@ -62,6 +64,8 @@ program ed_bilayer
   real(8),dimension(:,:),allocatable :: KPath
 
   complex(8),dimension(:,:,:),allocatable :: pi_irreducible,Lambda_vertex
+  complex(8),dimension(:,:),allocatable :: Sigma_exciton
+  !
   real(8),dimension(:,:),allocatable :: lambda_imag_tmp
   real(8) :: Vex
 
@@ -360,62 +364,10 @@ program ed_bilayer
      close(uio)
   end if
   !
-  call get_pi_irreducible_kkt(pi_irreducible)
   !
-  !+- here plot Pi_irreducible for q=0 -+!
-  uio=free_unit()
-  if(master) then
-     open(uio,file='q0_pi_irreducible_kkt.out')
-     do iw=1,LX
-        write(uio,'(10F18.10)') wrX(iw),pi_irreducible(1:2,1,iw)
-     end do
-     close(uio)
-  end if
   !
-  
-  allocate(Lambda_vertex(2,Lk,LX)); Lambda_vertex=0d0
-  Lambda_vertex=Vex*Vex*Pi_irreducible/(1.0+Vex*Pi_irreducible)
-
-  uio=free_unit()
-  if(master) then
-     open(uio,file='q0_lambda_vertex_kkt.out')
-     do iw=1,LX
-        write(uio,'(10F18.10)') wrX(iw),Lambda_vertex(1:2,1,iw)
-     end do
-     close(uio)
-  end if
-
-
-
-  call get_pi_irreducible_kkt_(pi_irreducible)
+  call get_pi_irreducible(pi_irreducible)
   !
-  !+- here plot Pi_irreducible for q=0 -+!
-  uio=free_unit()
-  if(master) then
-     open(uio,file='q0_pi_irreducible_kkt_corrected.out')
-     do iw=1,LX
-        write(uio,'(10F18.10)') wrX(iw),pi_irreducible(1:2,1,iw)
-     end do
-     close(uio)
-  end if
-  !
-
-  
-  if(allocated(Lambda_vertex)) deallocate(Lambda_vertex)  
-  allocate(Lambda_vertex(2,Lk,LX)); Lambda_vertex=0d0
-  Lambda_vertex=Vex*Vex*Pi_irreducible/(1.0+Vex*Pi_irreducible)
-
-  uio=free_unit()
-  if(master) then
-     open(uio,file='q0_lambda_vertex_kkt_corrected.out')
-     do iw=1,LX
-        write(uio,'(10F18.10)') wrX(iw),Lambda_vertex(1:2,1,iw)
-     end do
-     close(uio)
-  end if
-
-  !call mpi_stop
-  call get_pi_irreducible_(pi_irreducible)
   !
   !+- here plot Pi_irreducible for q=0 -+!
   uio=free_unit()
@@ -426,12 +378,13 @@ program ed_bilayer
      end do
      close(uio)
   end if
-  !
-  
+  !  
   if(allocated(Lambda_vertex)) deallocate(Lambda_vertex)
   allocate(Lambda_vertex(2,Lk,LX)); Lambda_vertex=0d0
   Lambda_vertex=Vex*Vex*Pi_irreducible/(1.0+Vex*Pi_irreducible)
-
+  !
+  !+- here compute the vertex
+  !
   uio=free_unit()
   if(master) then
      open(uio,file='q0_lambda_vertex.out')
@@ -440,10 +393,38 @@ program ed_bilayer
      end do
      close(uio)
   end if
-  
-  
+  !
+  !call mpi_stop
+  !+- here compute the SigmaX
+  call get_sigma_exciton(Sigma_exciton,Lambda_vertex)
+  !
+
+  uio=free_unit()
+  if(master) then
+     open(uio,file='SigmaX.out')
+     do iw=1,LX
+        write(uio,'(10F18.10)') wrX(iw),Sigma_exciton(1:2,iw)
+     end do
+     close(uio)
+  end if
+
+  !+- here do the dyson equation for the excitons
+  allocate(DX_dressed(2,LX));DX_dressed=0d0
+  DX_dressed(1,:) = 1d0/(DX**(-1d0)-sigma_exciton(1,:))
+  DX_dressed(2,:) = 1d0/(DX**(-1d0)-sigma_exciton(2,:))
 
 
+  uio=free_unit()
+  if(master) then
+     open(uio,file='dressedX.out')
+     do iw=1,LX
+        write(uio,'(10F18.10)') wrX(iw),DX_dressed(1:2,iw)
+     end do
+     close(uio)
+  end if
+
+  !
+  !
   ! uio=free_unit()
   ! if(master) then
   !    open(uio,file='q_pi_irreducible.out')
@@ -533,7 +514,7 @@ contains
   
   
   !+- this is the routine to be tested -+!
-  subroutine get_pi_irreducible_(pi_irreducible)
+  subroutine get_pi_irreducible(pi_irreducible)
     complex(8),dimension(:,:,:),allocatable,intent(out) :: pi_irreducible
     complex(8),dimension(:,:,:),allocatable :: pi_irreducible_tmp
     real(8),dimension(:,:,:),allocatable :: re_pi_tmp,im_pi_tmp
@@ -553,16 +534,11 @@ contains
     allocate(pi_irreducible(2,Lk,Lx)); pi_irreducible = 0.d0
     allocate(pi_irreducible_tmp(2,Lk,Lx)); pi_irreducible_tmp = 0.d0
     !
-    do ik=1+rank,1,mpiSize  !+- this is the external momentum
+    do ik=1+rank,Lk,mpiSize  !+- this is the external momentum
        !
-       if(master) write(*,*) 'Pi-irreducible',ik,Lk
-       
+       if(master) write(*,*) 'Pi-irreducible',ik,Lk       
        do jk=1,Lk   !+- this is the momentum over which the integration is performed
           !
-
-          if(master) write(*,*) 'jk',jk
-
-
           iik=ik_diff(ik,jk)   !+- this is the grid difference
           !
           call get_Akw_serial(iik,Sreal(:,1,1,1,1,:),Akw)  !+- here set the array of fermionic greens function
@@ -577,123 +553,20 @@ contains
              
              !+- do the integral over the dimensionless ferimionic frequencies
              !   at the end divide the result by thop
-
-
              wcmplx_ = wcmplx/thop_meV/1d-3
              wpX_ = wpX/thop_meV/1d-3
-
+             !
              int_array(1,:) = (fermi(wr(:),beta)-1.d0)/(wcmplx_-wr(:)-wpX_)*Akw(1,:)
              int_array(2,:) = (fermi(wr(:),beta)-1.d0)/(wcmplx_-wr(:)-wpX_)*Akw(2,:)
-
-
+             !
              !+- add to the integral
              pi_irreducible_tmp(1,ik,iw) = pi_irreducible_tmp(1,ik,iw) + & 
                   trapz(int_array(1,:),wr(1),wr(Lreal))/dble(Lk)/thop_meV/1d-3
              pi_irreducible_tmp(2,ik,iw) = pi_irreducible_tmp(2,ik,iw) + & 
                   trapz(int_array(2,:),wr(1),wr(Lreal))/dble(Lk)/thop_meV/1d-3
-
              !
           end do
        end do
-       !
-    end do
-    CALL MPI_ALLREDUCE(pi_irreducible_tmp,pi_irreducible,2*Lk*Lx,MPI_DOUBLE_COMPLEX,MPI_SUM,MPI_COMM_WORLD,MPIerr)    
-  end subroutine get_pi_irreducible_
-
-
-
-
-
-  subroutine get_pi_irreducible(pi_irreducible)
-    complex(8),dimension(:,:,:),allocatable,intent(out) :: pi_irreducible
-    complex(8),dimension(:,:,:),allocatable :: pi_irreducible_tmp
-    real(8),dimension(:,:,:),allocatable :: re_pi_tmp,im_pi_tmp
-    real(8) :: wtmp,wpX,wtmp_rescale
-    real(8),dimension(:,:),allocatable :: Akw
-    real(8),dimension(2) :: Akw_tmp
-    integer :: ik,jk,iik,iw,jw
-    complex(8),dimension(2) :: sigma_tmp
-    complex(8),dimension(:,:),allocatable :: int_array
-    real(8) :: win_tmp
-    complex(8) :: wcmplx
-    !
-    allocate(re_pi_tmp(2,Lk,Lx)); re_pi_tmp = 0.d0
-    allocate(im_pi_tmp(2,Lk,Lx)); im_pi_tmp = 0.d0
-    !
-    if(allocated(pi_irreducible)) deallocate(pi_irreducible)
-    allocate(pi_irreducible(2,Lk,Lx)); pi_irreducible = 0.d0
-    allocate(pi_irreducible_tmp(2,Lk,Lx)); pi_irreducible_tmp = 0.d0
-    !
-    do ik=1+rank,1,mpiSize  !+- this is the external momentum
-       !
-       if(master) write(*,*) 'Pi-irreducible',ik,Lk
-       
-       do jk=1,Lk   !+- this is the momentum over which the integration is performed
-          !
-
-          if(master) write(*,*) 'jk',jk
-
-
-          iik=ik_diff(ik,jk)   !+- this is the grid difference
-          !
-          call get_Akw_serial(iik,Sreal(:,1,1,1,1,:),Akw)  !+- here set the array of fermionic greens function
-          !
-          do iw=1,Lx          
-             wcmplx = wrX(iw) + xi*epsX
-             !
-             wpX = wX + 0.5*h0*dot_product(kgrid(jk,:),kgrid(jk,:))/am_nm/am_nm !+- exciton energy
-             !
-             if(allocated(int_array)) deallocate(int_array)
-             allocate(int_array(2,Lx)); int_array=0.d0
-             
-             do jw=1,Lx
-                !
-                wtmp = wrX(jw)-wpX
-                !get  wtmp in dimensionless units
-                !wtmp is in electron Volt: rescale using the thop=1 dimensionless scale
-                wtmp_rescale = wtmp/thop_meV/1d-3
-
-                !
-                Akw_tmp=0d0
-                if(wtmp_rescale.gt.wini.and.wtmp_rescale.lt.wfin) then
-                   !
-                   !+- here interpolate the spectral functions
-                   call linear_spline(wr(:),Akw(1,:),wtmp_rescale,Akw_tmp(1))   
-                   call linear_spline(wr(:),Akw(2,:),wtmp_rescale,Akw_tmp(2))
-                   !
-                ! else
-                !    !+- approx the self-energy with [wini] and [wfin] values
-                !    if(wtmp_rescale.lt.wini) then                
-                !       Sigma_tmp=Sreal(:,1,1,1,1,1)
-                !       !win_tmp = wini
-                !    else
-                !       Sigma_tmp=Sreal(:,1,1,1,1,Lreal)
-                !       !win_tmp = wfin
-                !    end if
-                !    call get_Akw_w(iik,wtmp_rescale,Sigma_tmp,Akw_tmp)   
-                end if
-                !+- Akw_tmp is in dimensionless units: rescale back to eV^{-1}
-                !   Akw_tmp[ev^{-1}] = Ake_tmp/thop(meV)/1d-3
-                Akw_tmp = Akw_tmp/thop_mev/1d-3 
-                !
-                int_array(:,jw) = (fermi(wtmp_rescale,beta)-1.d0)/(wcmplx-wrX(jw))*Akw_tmp(:)
-             end do
-
-             !+- add to the integral
-             pi_irreducible_tmp(1,ik,iw) = pi_irreducible_tmp(1,ik,iw) + & 
-                  trapz(int_array(1,:),wrX(1),wrX(Lx))/dble(Lk)
-             pi_irreducible_tmp(2,ik,iw) = pi_irreducible_tmp(2,ik,iw) + & 
-                  trapz(int_array(2,:),wrX(1),wrX(Lx))/dble(Lk)
-
-             !
-          end do
-       end do
-       !
-       !kkt
-       ! call get_kkt_serial(im_pi_tmp(1,ik,:),re_pi_tmp(1,ik,:),wrX,'IR')
-       ! call get_kkt_serial(im_pi_tmp(2,ik,:),re_pi_tmp(2,ik,:),wrX,'IR')       
-       ! !
-       ! pi_irreducible_tmp(:,ik,:) = xi*im_pi_tmp(:,ik,:)+re_pi_tmp(:,ik,:)
        !
     end do
     CALL MPI_ALLREDUCE(pi_irreducible_tmp,pi_irreducible,2*Lk*Lx,MPI_DOUBLE_COMPLEX,MPI_SUM,MPI_COMM_WORLD,MPIerr)    
@@ -701,185 +574,66 @@ contains
 
 
 
-
-
-  subroutine get_pi_irreducible_kkt(pi_irreducible)
-    complex(8),dimension(:,:,:),allocatable,intent(out) :: pi_irreducible
-    complex(8),dimension(:,:,:),allocatable :: pi_irreducible_tmp
-    real(8),dimension(:,:,:),allocatable :: re_pi_tmp,im_pi_tmp
-    real(8) :: wtmp,wpX,wtmp_rescale
+  subroutine get_sigma_exciton(SigmaX,L_vertex)
+    complex(8),dimension(:,:),allocatable,intent(out) :: SigmaX
+    complex(8),dimension(:,:,:),allocatable,intent(in) :: L_vertex    
+    real(8),dimension(:,:),allocatable :: im_sigmaX_tmp,im_sigmaX
+    real(8),dimension(2) :: ImL
+    real(8),dimension(:,:), allocatable :: int_array
+    real(8) :: wtmp
+    integer :: ik,iw,jw
     real(8),dimension(:,:),allocatable :: Akw
-    real(8),dimension(2) :: Akw_tmp
-    integer :: ik,jk,iik
-    complex(8),dimension(2) :: sigma_tmp
-    real(8) :: win_tmp
-    !
-    allocate(re_pi_tmp(2,Lk,Lx)); re_pi_tmp = 0.d0
-    allocate(im_pi_tmp(2,Lk,Lx)); im_pi_tmp = 0.d0
-    !
-    if(allocated(pi_irreducible)) deallocate(pi_irreducible)
-    allocate(pi_irreducible(2,Lk,Lx)); pi_irreducible = 0.d0
-    allocate(pi_irreducible_tmp(2,Lk,Lx)); pi_irreducible_tmp = 0.d0
-    !
-    do ik=1+rank,1,mpiSize  !+- this is the external momentum
-       !
-       if(master) write(*,*) 'Pi-irreducible',ik,Lk
-       
-       do jk=1,Lk   !+- this is the momentum over which the integration is performed
-          !
-          iik=ik_diff(ik,jk)   !+- this is the grid difference
-          !
-          call get_Akw_serial(iik,Sreal(:,1,1,1,1,:),Akw)  !+- here set the array of fermionic greens function
-          !
-          do iw=1,Lx          
-             !
-             wpX = wX + 0.5*h0*dot_product(kgrid(jk,:),kgrid(jk,:))/am_nm/am_nm !+- exciton energy
-             wtmp = wrX(iw) - wpX
-             
-             !get  wtmp in dimensionless units
-             !wtmp is in electron Volt: rescale using the thop=1 dimensionless scale
-             wtmp_rescale = wtmp/thop_meV/1d-3
-             !
-             Akw_tmp=0d0
-             if(wtmp_rescale.gt.wini.and.wtmp_rescale.lt.wfin) then
-                !
-                !+- here interpolate the spectral functions
-                call linear_spline(wr(:),Akw(1,:),wtmp_rescale,Akw_tmp(1))   
-                call linear_spline(wr(:),Akw(2,:),wtmp_rescale,Akw_tmp(2))
-                !
-             else
-                !+- approx the self-energy with [wini] and [wfin] values
-                if(wtmp_rescale.lt.wini) then                
-                   Sigma_tmp=Sreal(:,1,1,1,1,1)
-                   !win_tmp = wini
-                else
-                   Sigma_tmp=Sreal(:,1,1,1,1,Lreal)
-                   !win_tmp = wfin
-                end if
-                call get_Akw_w(iik,wtmp_rescale,Sigma_tmp,Akw_tmp)   
-             end if
-             !+- Akw_tmp is in dimensionless units: rescale back to eV^{-1}
-             !   Akw_tmp[ev^{-1}] = Ake_tmp/thop(meV)/1d-3
-             Akw_tmp = Akw_tmp/thop_mev/1d-3 
-             !
-             !+- add to the integral             
-             im_pi_tmp(:,ik,iw) = im_pi_tmp(:,ik,iw) - pi*Akw_tmp(:)*(fermi(wtmp,beta/thop_mev/1d-3)-1.d0)/dble(Lk) ! the -1.0 is  bose(-\o_p)             
-          end do
-       end do
-       !
-       !kkt
-       call get_kkt_serial(im_pi_tmp(1,ik,:),re_pi_tmp(1,ik,:),wrX,'IR')
-       call get_kkt_serial(im_pi_tmp(2,ik,:),re_pi_tmp(2,ik,:),wrX,'IR')       
-       !
-       pi_irreducible_tmp(:,ik,:) = xi*im_pi_tmp(:,ik,:)+re_pi_tmp(:,ik,:)
-       !
-    end do
-    CALL MPI_ALLREDUCE(pi_irreducible_tmp,pi_irreducible,2*Lk*Lx,MPI_DOUBLE_COMPLEX,MPI_SUM,MPI_COMM_WORLD,MPIerr)    
-  end subroutine get_pi_irreducible_kkt
-
-
-
-
-  subroutine get_pi_irreducible_kkt_(pi_irreducible)
-    complex(8),dimension(:,:,:),allocatable,intent(out) :: pi_irreducible
-    complex(8),dimension(:,:,:),allocatable :: pi_irreducible_tmp
-    real(8),dimension(:,:,:),allocatable :: re_pi_tmp,im_pi_tmp
-    real(8) :: wtmp,wpX,wtmp_rescale
-    real(8),dimension(:,:),allocatable :: Akw
-    real(8),dimension(2) :: Akw_tmp
-    integer :: ik,jk,iik,iw,jw
-    complex(8),dimension(2) :: sigma_tmp
-    real(8) :: win_tmp
-
-    real(8),dimension(:),allocatable :: int_array
-    !complex(8) :: wcmplx
-    !
-    real(8),allocatable,dimension(:,:) :: fermi_bose,fermi_bose_tmp
     
+    if(.not.allocated(L_vertex)) call mpi_stop('if(.not.allocated(L_vertex))')
+    if(size(L_vertex,1).ne.2) call mpi_stop('if(size(L_vertex,1).ne.2)')
+    if(size(L_vertex,2).ne.Lk) call mpi_stop('if(size(L_vertex,2).ne.Lk)')
+    if(size(L_vertex,3).ne.LX) call mpi_stop('if(size(L_vertex,3).ne.LX)')
     !
-    allocate(fermi_bose(LK,Lx));     fermi_bose=0d0
-    allocate(fermi_bose_tmp(LK,Lx)); fermi_bose_tmp=0d0
-    allocate(int_array(LX)) ; int_array=0d0
+    allocate(im_sigmaX(2,Lx));     im_sigmaX=0.d0
+    allocate(im_sigmaX_tmp(2,Lx)); im_sigmaX_tmp=0.d0    
+    !allocate(int_array(2,Lx));int_array=0.d0
     !
-    do ik=1+rank,Lk,mpiSize  !+- this is the external momentum
+    !
+    do iw=1+rank,LX,mpiSize
        !
-       wpX = wX + 0.5*h0*dot_product(kgrid(ik,:),kgrid(ik,:))/am_nm/am_nm !+- exciton energy
+       im_sigmaX_tmp(:,iw) = 0.d0
        !
-       do iw=1,Lx
+       if(master) write(*,*) 'sigmaX',iw,LX
+       !+- integrate over momenta
+       do ik=1,Lk
           !
-          int_array=0d0
-          do jw=1,Lx
-             int_array(jw) = -epsX*(fermi(wrX(jw),beta/thop_mev/1d-3)-1d0)/((wrX(iw)-wrX(jw)-wpX)**2.d0+epsX**2.d0)
-          end do          
-          fermi_bose_tmp(ik,iw) = trapz(int_array,wrX(1),wrX(Lx))          
-       end do
-    end do
-    CALL MPI_ALLREDUCE(fermi_bose_tmp,fermi_bose,Lk*Lx,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD,MPIerr)    
-    
-    !
-    allocate(re_pi_tmp(2,Lk,Lx)); re_pi_tmp = 0.d0
-    allocate(im_pi_tmp(2,Lk,Lx)); im_pi_tmp = 0.d0
-    !
-    if(allocated(pi_irreducible)) deallocate(pi_irreducible)
-    allocate(pi_irreducible(2,Lk,Lx)); pi_irreducible = 0.d0
-    allocate(pi_irreducible_tmp(2,Lk,Lx)); pi_irreducible_tmp = 0.d0
-    !
-    do ik=1+rank,1,mpiSize  !+- this is the external momentum
-       !
-       if(master) write(*,*) 'Pi-irreducible',ik,Lk
-       
-       do jk=1,Lk   !+- this is the momentum over which the integration is performed
+          call get_Akw_serial(ik,Sreal(:,1,1,1,1,:),Akw)  !+- here set the array of fermionic greens function
           !
-          iik=ik_diff(ik,jk)   !+- this is the grid difference
-          !
-          call get_Akw_serial(iik,Sreal(:,1,1,1,1,:),Akw)  !+- here set the array of fermionic greens function
-          !
-          do iw=1,Lx          
+          if(allocated(int_array)) deallocate(int_array)
+          allocate(int_array(2,Lreal)); int_array=0d0
+          do jw=1,Lreal
              !
-             wpX = wX + 0.5*h0*dot_product(kgrid(jk,:),kgrid(jk,:))/am_nm/am_nm !+- exciton energy
-             wtmp = wrX(iw) - wpX
-             
-             !get  wtmp in dimensionless units
-             !wtmp is in electron Volt: rescale using the thop=1 dimensionless scale
-             wtmp_rescale = wtmp/thop_meV/1d-3
+             wtmp=wrX(iw)+wr(jw)*thop_mev*1d-3
+             call linear_spline(wrX(:),dimag(L_vertex(1,:,ik)),wtmp,ImL(1))
+             call linear_spline(wrX(:),dimag(L_vertex(2,:,ik)),wtmp,ImL(2))
              !
-             Akw_tmp=0d0
-             if(wtmp_rescale.gt.wini.and.wtmp_rescale.lt.wfin) then
-                !
-                !+- here interpolate the spectral functions
-                call linear_spline(wr(:),Akw(1,:),wtmp_rescale,Akw_tmp(1))   
-                call linear_spline(wr(:),Akw(2,:),wtmp_rescale,Akw_tmp(2))
-             !    !
-             else
-                !+- approx the self-energy with [wini] and [wfin] values
-                if(wtmp_rescale.lt.wini) then                
-                   Sigma_tmp=Sreal(:,1,1,1,1,1)
-                   !win_tmp = wini
-                else
-                   Sigma_tmp=Sreal(:,1,1,1,1,Lreal)
-                   !win_tmp = wfin
-                end if
-                call get_Akw_w(iik,wtmp_rescale,Sigma_tmp,Akw_tmp)   
-             end if
-             !+- Akw_tmp is in dimensionless units: rescale back to eV^{-1}
-             !   Akw_tmp[ev^{-1}] = Ake_tmp/thop(meV)/1d-3
-             Akw_tmp = Akw_tmp/thop_mev/1d-3 
+             int_array(1,jw) = (fermi(wr(jw),beta) - fermi(wtmp,beta/thop_mev/1d-3))*ImL(1)*Akw(1,jw)
+             int_array(2,jw) = (fermi(wr(jw),beta) - fermi(wtmp,beta/thop_mev/1d-3))*ImL(2)*Akw(2,jw)
              !
-             !+- add to the integral: the fermi-bose factor has been computed once for all above
-             !im_pi_tmp(:,ik,iw) = im_pi_tmp(:,ik,iw) - pi*Akw_tmp(:)*(fermi(wtmp,beta)-1.d0)/dble(Lk) ! the -1.0 is  bose(-\o_p)             
-             im_pi_tmp(:,ik,iw) = im_pi_tmp(:,ik,iw) + Akw_tmp(:)*fermi_bose(jk,iw)/dble(Lk)       
           end do
+          !
+          im_sigmaX_tmp(1,iw) = im_sigmaX_tmp(1,iw) - trapz(int_array(1,:),wr(1),wr(Lreal))
+          im_sigmaX_tmp(2,iw) = im_sigmaX_tmp(2,iw) - trapz(int_array(2,:),wr(1),wr(Lreal))
+          !
        end do
        !
-       !kkt
-       call get_kkt_serial(im_pi_tmp(1,ik,:),re_pi_tmp(1,ik,:),wrX,'IR')
-       call get_kkt_serial(im_pi_tmp(2,ik,:),re_pi_tmp(2,ik,:),wrX,'IR')       
-       !
-       pi_irreducible_tmp(:,ik,:) = xi*im_pi_tmp(:,ik,:)+re_pi_tmp(:,ik,:)
-       !
     end do
-    CALL MPI_ALLREDUCE(pi_irreducible_tmp,pi_irreducible,2*Lk*Lx,MPI_DOUBLE_COMPLEX,MPI_SUM,MPI_COMM_WORLD,MPIerr)    
-  end subroutine get_pi_irreducible_kkt_
+    call mpi_allreduce(im_sigmaX_tmp,im_sigmaX,2*LX,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD,MPIerr)
+    im_sigmaX_tmp=0d0
+    call get_kkt(im_sigmaX(1,:),im_sigmaX_tmp(1,:),wrX,'IR')
+    call get_kkt(im_sigmaX(2,:),im_sigmaX_tmp(2,:),wrX,'IR')
+    if(allocated(SigmaX)) deallocate(SigmaX)
+    allocate(SigmaX(2,LX))
+    SigmaX=im_sigmaX_tmp+xi*im_sigmaX
+    !
+  end subroutine get_sigma_exciton
+
+
   
 
   subroutine get_KKT(ReS,ImS,wkkt,mode_)
@@ -1337,3 +1091,279 @@ end program
         !    stop
         ! end if
         ! xmu=1
+  ! subroutine get_pi_irreducible(pi_irreducible)
+  !   complex(8),dimension(:,:,:),allocatable,intent(out) :: pi_irreducible
+  !   complex(8),dimension(:,:,:),allocatable :: pi_irreducible_tmp
+  !   real(8),dimension(:,:,:),allocatable :: re_pi_tmp,im_pi_tmp
+  !   real(8) :: wtmp,wpX,wtmp_rescale
+  !   real(8),dimension(:,:),allocatable :: Akw
+  !   real(8),dimension(2) :: Akw_tmp
+  !   integer :: ik,jk,iik,iw,jw
+  !   complex(8),dimension(2) :: sigma_tmp
+  !   complex(8),dimension(:,:),allocatable :: int_array
+  !   real(8) :: win_tmp
+  !   complex(8) :: wcmplx
+  !   !
+  !   allocate(re_pi_tmp(2,Lk,Lx)); re_pi_tmp = 0.d0
+  !   allocate(im_pi_tmp(2,Lk,Lx)); im_pi_tmp = 0.d0
+  !   !
+  !   if(allocated(pi_irreducible)) deallocate(pi_irreducible)
+  !   allocate(pi_irreducible(2,Lk,Lx)); pi_irreducible = 0.d0
+  !   allocate(pi_irreducible_tmp(2,Lk,Lx)); pi_irreducible_tmp = 0.d0
+  !   !
+  !   do ik=1+rank,1,mpiSize  !+- this is the external momentum
+  !      !
+  !      if(master) write(*,*) 'Pi-irreducible',ik,Lk
+       
+  !      do jk=1,Lk   !+- this is the momentum over which the integration is performed
+  !         !
+
+  !         if(master) write(*,*) 'jk',jk
+
+
+  !         iik=ik_diff(ik,jk)   !+- this is the grid difference
+  !         !
+  !         call get_Akw_serial(iik,Sreal(:,1,1,1,1,:),Akw)  !+- here set the array of fermionic greens function
+  !         !
+  !         do iw=1,Lx          
+  !            wcmplx = wrX(iw) + xi*epsX
+  !            !
+  !            wpX = wX + 0.5*h0*dot_product(kgrid(jk,:),kgrid(jk,:))/am_nm/am_nm !+- exciton energy
+  !            !
+  !            if(allocated(int_array)) deallocate(int_array)
+  !            allocate(int_array(2,Lx)); int_array=0.d0
+             
+  !            do jw=1,Lx
+  !               !
+  !               wtmp = wrX(jw)-wpX
+  !               !get  wtmp in dimensionless units
+  !               !wtmp is in electron Volt: rescale using the thop=1 dimensionless scale
+  !               wtmp_rescale = wtmp/thop_meV/1d-3
+
+  !               !
+  !               Akw_tmp=0d0
+  !               if(wtmp_rescale.gt.wini.and.wtmp_rescale.lt.wfin) then
+  !                  !
+  !                  !+- here interpolate the spectral functions
+  !                  call linear_spline(wr(:),Akw(1,:),wtmp_rescale,Akw_tmp(1))   
+  !                  call linear_spline(wr(:),Akw(2,:),wtmp_rescale,Akw_tmp(2))
+  !                  !
+  !               ! else
+  !               !    !+- approx the self-energy with [wini] and [wfin] values
+  !               !    if(wtmp_rescale.lt.wini) then                
+  !               !       Sigma_tmp=Sreal(:,1,1,1,1,1)
+  !               !       !win_tmp = wini
+  !               !    else
+  !               !       Sigma_tmp=Sreal(:,1,1,1,1,Lreal)
+  !               !       !win_tmp = wfin
+  !               !    end if
+  !               !    call get_Akw_w(iik,wtmp_rescale,Sigma_tmp,Akw_tmp)   
+  !               end if
+  !               !+- Akw_tmp is in dimensionless units: rescale back to eV^{-1}
+  !               !   Akw_tmp[ev^{-1}] = Ake_tmp/thop(meV)/1d-3
+  !               Akw_tmp = Akw_tmp/thop_mev/1d-3 
+  !               !
+  !               int_array(:,jw) = (fermi(wtmp_rescale,beta)-1.d0)/(wcmplx-wrX(jw))*Akw_tmp(:)
+  !            end do
+
+  !            !+- add to the integral
+  !            pi_irreducible_tmp(1,ik,iw) = pi_irreducible_tmp(1,ik,iw) + & 
+  !                 trapz(int_array(1,:),wrX(1),wrX(Lx))/dble(Lk)
+  !            pi_irreducible_tmp(2,ik,iw) = pi_irreducible_tmp(2,ik,iw) + & 
+  !                 trapz(int_array(2,:),wrX(1),wrX(Lx))/dble(Lk)
+
+  !            !
+  !         end do
+  !      end do
+  !      !
+  !      !kkt
+  !      ! call get_kkt_serial(im_pi_tmp(1,ik,:),re_pi_tmp(1,ik,:),wrX,'IR')
+  !      ! call get_kkt_serial(im_pi_tmp(2,ik,:),re_pi_tmp(2,ik,:),wrX,'IR')       
+  !      ! !
+  !      ! pi_irreducible_tmp(:,ik,:) = xi*im_pi_tmp(:,ik,:)+re_pi_tmp(:,ik,:)
+  !      !
+  !   end do
+  !   CALL MPI_ALLREDUCE(pi_irreducible_tmp,pi_irreducible,2*Lk*Lx,MPI_DOUBLE_COMPLEX,MPI_SUM,MPI_COMM_WORLD,MPIerr)    
+  ! end subroutine get_pi_irreducible
+
+
+
+
+
+  ! subroutine get_pi_irreducible_kkt(pi_irreducible)
+  !   complex(8),dimension(:,:,:),allocatable,intent(out) :: pi_irreducible
+  !   complex(8),dimension(:,:,:),allocatable :: pi_irreducible_tmp
+  !   real(8),dimension(:,:,:),allocatable :: re_pi_tmp,im_pi_tmp
+  !   real(8) :: wtmp,wpX,wtmp_rescale
+  !   real(8),dimension(:,:),allocatable :: Akw
+  !   real(8),dimension(2) :: Akw_tmp
+  !   integer :: ik,jk,iik
+  !   complex(8),dimension(2) :: sigma_tmp
+  !   real(8) :: win_tmp
+  !   !
+  !   allocate(re_pi_tmp(2,Lk,Lx)); re_pi_tmp = 0.d0
+  !   allocate(im_pi_tmp(2,Lk,Lx)); im_pi_tmp = 0.d0
+  !   !
+  !   if(allocated(pi_irreducible)) deallocate(pi_irreducible)
+  !   allocate(pi_irreducible(2,Lk,Lx)); pi_irreducible = 0.d0
+  !   allocate(pi_irreducible_tmp(2,Lk,Lx)); pi_irreducible_tmp = 0.d0
+  !   !
+  !   do ik=1+rank,1,mpiSize  !+- this is the external momentum
+  !      !
+  !      if(master) write(*,*) 'Pi-irreducible',ik,Lk
+       
+  !      do jk=1,Lk   !+- this is the momentum over which the integration is performed
+  !         !
+  !         iik=ik_diff(ik,jk)   !+- this is the grid difference
+  !         !
+  !         call get_Akw_serial(iik,Sreal(:,1,1,1,1,:),Akw)  !+- here set the array of fermionic greens function
+  !         !
+  !         do iw=1,Lx          
+  !            !
+  !            wpX = wX + 0.5*h0*dot_product(kgrid(jk,:),kgrid(jk,:))/am_nm/am_nm !+- exciton energy
+  !            wtmp = wrX(iw) - wpX
+             
+  !            !get  wtmp in dimensionless units
+  !            !wtmp is in electron Volt: rescale using the thop=1 dimensionless scale
+  !            wtmp_rescale = wtmp/thop_meV/1d-3
+  !            !
+  !            Akw_tmp=0d0
+  !            if(wtmp_rescale.gt.wini.and.wtmp_rescale.lt.wfin) then
+  !               !
+  !               !+- here interpolate the spectral functions
+  !               call linear_spline(wr(:),Akw(1,:),wtmp_rescale,Akw_tmp(1))   
+  !               call linear_spline(wr(:),Akw(2,:),wtmp_rescale,Akw_tmp(2))
+  !               !
+  !            else
+  !               !+- approx the self-energy with [wini] and [wfin] values
+  !               if(wtmp_rescale.lt.wini) then                
+  !                  Sigma_tmp=Sreal(:,1,1,1,1,1)
+  !                  !win_tmp = wini
+  !               else
+  !                  Sigma_tmp=Sreal(:,1,1,1,1,Lreal)
+  !                  !win_tmp = wfin
+  !               end if
+  !               call get_Akw_w(iik,wtmp_rescale,Sigma_tmp,Akw_tmp)   
+  !            end if
+  !            !+- Akw_tmp is in dimensionless units: rescale back to eV^{-1}
+  !            !   Akw_tmp[ev^{-1}] = Ake_tmp/thop(meV)/1d-3
+  !            Akw_tmp = Akw_tmp/thop_mev/1d-3 
+  !            !
+  !            !+- add to the integral             
+  !            im_pi_tmp(:,ik,iw) = im_pi_tmp(:,ik,iw) - pi*Akw_tmp(:)*(fermi(wtmp,beta/thop_mev/1d-3)-1.d0)/dble(Lk) ! the -1.0 is  bose(-\o_p)             
+  !         end do
+  !      end do
+  !      !
+  !      !kkt
+  !      call get_kkt_serial(im_pi_tmp(1,ik,:),re_pi_tmp(1,ik,:),wrX,'IR')
+  !      call get_kkt_serial(im_pi_tmp(2,ik,:),re_pi_tmp(2,ik,:),wrX,'IR')       
+  !      !
+  !      pi_irreducible_tmp(:,ik,:) = xi*im_pi_tmp(:,ik,:)+re_pi_tmp(:,ik,:)
+  !      !
+  !   end do
+  !   CALL MPI_ALLREDUCE(pi_irreducible_tmp,pi_irreducible,2*Lk*Lx,MPI_DOUBLE_COMPLEX,MPI_SUM,MPI_COMM_WORLD,MPIerr)    
+  ! end subroutine get_pi_irreducible_kkt
+
+
+
+
+  ! subroutine get_pi_irreducible_kkt_(pi_irreducible)
+  !   complex(8),dimension(:,:,:),allocatable,intent(out) :: pi_irreducible
+  !   complex(8),dimension(:,:,:),allocatable :: pi_irreducible_tmp
+  !   real(8),dimension(:,:,:),allocatable :: re_pi_tmp,im_pi_tmp
+  !   real(8) :: wtmp,wpX,wtmp_rescale
+  !   real(8),dimension(:,:),allocatable :: Akw
+  !   real(8),dimension(2) :: Akw_tmp
+  !   integer :: ik,jk,iik,iw,jw
+  !   complex(8),dimension(2) :: sigma_tmp
+  !   real(8) :: win_tmp
+
+  !   real(8),dimension(:),allocatable :: int_array
+  !   !complex(8) :: wcmplx
+  !   !
+  !   real(8),allocatable,dimension(:,:) :: fermi_bose,fermi_bose_tmp
+    
+  !   !
+  !   allocate(fermi_bose(LK,Lx));     fermi_bose=0d0
+  !   allocate(fermi_bose_tmp(LK,Lx)); fermi_bose_tmp=0d0
+  !   allocate(int_array(LX)) ; int_array=0d0
+  !   !
+  !   do ik=1+rank,Lk,mpiSize  !+- this is the external momentum
+  !      !
+  !      wpX = wX + 0.5*h0*dot_product(kgrid(ik,:),kgrid(ik,:))/am_nm/am_nm !+- exciton energy
+  !      !
+  !      do iw=1,Lx
+  !         !
+  !         int_array=0d0
+  !         do jw=1,Lx
+  !            int_array(jw) = -epsX*(fermi(wrX(jw),beta/thop_mev/1d-3)-1d0)/((wrX(iw)-wrX(jw)-wpX)**2.d0+epsX**2.d0)
+  !         end do          
+  !         fermi_bose_tmp(ik,iw) = trapz(int_array,wrX(1),wrX(Lx))          
+  !      end do
+  !   end do
+  !   CALL MPI_ALLREDUCE(fermi_bose_tmp,fermi_bose,Lk*Lx,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD,MPIerr)    
+    
+  !   !
+  !   allocate(re_pi_tmp(2,Lk,Lx)); re_pi_tmp = 0.d0
+  !   allocate(im_pi_tmp(2,Lk,Lx)); im_pi_tmp = 0.d0
+  !   !
+  !   if(allocated(pi_irreducible)) deallocate(pi_irreducible)
+  !   allocate(pi_irreducible(2,Lk,Lx)); pi_irreducible = 0.d0
+  !   allocate(pi_irreducible_tmp(2,Lk,Lx)); pi_irreducible_tmp = 0.d0
+  !   !
+  !   do ik=1+rank,1,mpiSize  !+- this is the external momentum
+  !      !
+  !      if(master) write(*,*) 'Pi-irreducible',ik,Lk
+       
+  !      do jk=1,Lk   !+- this is the momentum over which the integration is performed
+  !         !
+  !         iik=ik_diff(ik,jk)   !+- this is the grid difference
+  !         !
+  !         call get_Akw_serial(iik,Sreal(:,1,1,1,1,:),Akw)  !+- here set the array of fermionic greens function
+  !         !
+  !         do iw=1,Lx          
+  !            !
+  !            wpX = wX + 0.5*h0*dot_product(kgrid(jk,:),kgrid(jk,:))/am_nm/am_nm !+- exciton energy
+  !            wtmp = wrX(iw) - wpX
+             
+  !            !get  wtmp in dimensionless units
+  !            !wtmp is in electron Volt: rescale using the thop=1 dimensionless scale
+  !            wtmp_rescale = wtmp/thop_meV/1d-3
+  !            !
+  !            Akw_tmp=0d0
+  !            if(wtmp_rescale.gt.wini.and.wtmp_rescale.lt.wfin) then
+  !               !
+  !               !+- here interpolate the spectral functions
+  !               call linear_spline(wr(:),Akw(1,:),wtmp_rescale,Akw_tmp(1))   
+  !               call linear_spline(wr(:),Akw(2,:),wtmp_rescale,Akw_tmp(2))
+  !            !    !
+  !            else
+  !               !+- approx the self-energy with [wini] and [wfin] values
+  !               if(wtmp_rescale.lt.wini) then                
+  !                  Sigma_tmp=Sreal(:,1,1,1,1,1)
+  !                  !win_tmp = wini
+  !               else
+  !                  Sigma_tmp=Sreal(:,1,1,1,1,Lreal)
+  !                  !win_tmp = wfin
+  !               end if
+  !               call get_Akw_w(iik,wtmp_rescale,Sigma_tmp,Akw_tmp)   
+  !            end if
+  !            !+- Akw_tmp is in dimensionless units: rescale back to eV^{-1}
+  !            !   Akw_tmp[ev^{-1}] = Ake_tmp/thop(meV)/1d-3
+  !            Akw_tmp = Akw_tmp/thop_mev/1d-3 
+  !            !
+  !            !+- add to the integral: the fermi-bose factor has been computed once for all above
+  !            !im_pi_tmp(:,ik,iw) = im_pi_tmp(:,ik,iw) - pi*Akw_tmp(:)*(fermi(wtmp,beta)-1.d0)/dble(Lk) ! the -1.0 is  bose(-\o_p)             
+  !            im_pi_tmp(:,ik,iw) = im_pi_tmp(:,ik,iw) + Akw_tmp(:)*fermi_bose(jk,iw)/dble(Lk)       
+  !         end do
+  !      end do
+  !      !
+  !      !kkt
+  !      call get_kkt_serial(im_pi_tmp(1,ik,:),re_pi_tmp(1,ik,:),wrX,'IR')
+  !      call get_kkt_serial(im_pi_tmp(2,ik,:),re_pi_tmp(2,ik,:),wrX,'IR')       
+  !      !
+  !      pi_irreducible_tmp(:,ik,:) = xi*im_pi_tmp(:,ik,:)+re_pi_tmp(:,ik,:)
+  !      !
+  !   end do
+  !   CALL MPI_ALLREDUCE(pi_irreducible_tmp,pi_irreducible,2*Lk*Lx,MPI_DOUBLE_COMPLEX,MPI_SUM,MPI_COMM_WORLD,MPIerr)    
+  ! end subroutine get_pi_irreducible_kkt_
