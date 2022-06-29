@@ -48,12 +48,12 @@ program ed_bilayer
   integer,dimension(:,:),allocatable :: ij2ik
   !
   !+- exciton-polaron problem
-  real(8)              :: thop_mev,am_nm
+  real(8)              :: thop_mev,am_nm,thop_empty,gap_empty
   real(8)              :: wX,epsX,winiX,wfinX,mX,h0,delta_wgrid
 
-  integer              :: LwX,Lx,iw,ik
+  integer              :: LwX,Lx,iw,ik,jL,jR
   real(8),dimension(:),allocatable :: wrX,wr_tmp,wr
-  complex(8)           :: wcmplx
+  complex(8)           :: wcmplx,DX_tmp
   complex(8),dimension(:),allocatable :: DX
   complex(8),dimension(:,:),allocatable :: DX_dressed
 
@@ -68,7 +68,7 @@ program ed_bilayer
   !
   real(8),dimension(:,:),allocatable :: lambda_imag_tmp
   real(8) :: Vex
-
+  real(8) :: dw1,dw2,dw3
   !
   !
   call init_MPI()
@@ -104,6 +104,9 @@ program ed_bilayer
   call parse_input_variable(printG,"printG",finput,default=.true.)
   !
   call parse_input_variable(thop_mev,"thop_mev",finput,default=0.5d0,comment='hopping in meV')
+  call parse_input_variable(thop_empty,"thop_empty",finput,default=2.d0,comment='thop in the the 2nd moire band; dimensionless')
+  call parse_input_variable(gap_empty,"gap_empty",finput,default=30.d0,comment='gap btw 1st and 2nd moire bands; dimensionless')
+  !  
   call parse_input_variable(am_nm,"am_nm",finput,default=25d0,comment='moire periodicity in nm')
   !
   call parse_input_variable(wX,"wX",finput,default=1.6d0,comment='bare exciton energy in eV')
@@ -136,10 +139,10 @@ program ed_bilayer
   call add_ctrl_var(wini,'wini')
   call add_ctrl_var(wfin,'wfin')
   call add_ctrl_var(eps,"eps")
-
-
+  !
+  !
   h0=7.62d-02 ! hbar^2/m [eV x nm^2]
-
+  
 
   Nlat=2
   if(Nspin/=1.OR.Nlat/=2)stop "Wrong setup from input file: Nspin=1, Norb=2 -> 2Spin-Orbitals"
@@ -318,6 +321,12 @@ program ed_bilayer
   do ik=1,Lk
      call get_Akw_serial(ik,Sreal(:,1,1,1,1,:),Ak_test)
      Aloc = Aloc + Ak_test/dble(Lk)
+     !     
+     if(thop_empty.gt.0d0) then
+        call get_Akw_empty(ik,Ak_test)
+        Aloc = Aloc + Ak_test/dble(Lk)
+     end if
+     !
   end do
   if(master) then
      uio=free_unit()
@@ -327,6 +336,7 @@ program ed_bilayer
      end do
      close(uio)
   end if
+  !call mpi_stop
   !
 
 
@@ -335,17 +345,17 @@ program ed_bilayer
   allocate(wrX(Lx)); wrX=0.d0    
   !+- coarse grid (negative frequency)
   allocate(wr_tmp(LwX))
-  wr_tmp=linspace(winiX,wX-delta_wgrid,LwX,iend=.false.)
+  wr_tmp=linspace(winiX,wX-delta_wgrid,LwX,mesh=dw1,iend=.false.)
   wrX(1:Lwx) = wr_tmp 
   deallocate(wr_tmp)
   !+- fine grid (around exciton)
   allocate(wr_tmp(Lreal))
-  wr_tmp=linspace(wX-delta_wgrid,wX+delta_wgrid,Lreal,iend=.false.)
+  wr_tmp=linspace(wX-delta_wgrid,wX+delta_wgrid,Lreal,mesh=dw2,iend=.false.)
   wrX(LwX+1:LwX+Lreal) = wr_tmp 
   deallocate(wr_tmp)
   !+- coarse grid (positive frequency)
   allocate(wr_tmp(LwX))
-  wr_tmp=linspace(wX+delta_wgrid,wfinX,LwX)
+  wr_tmp=linspace(wX+delta_wgrid,wfinX,LwX,mesh=dw3)
   wrX(LwX+Lreal+1:2*LwX+Lreal) = wr_tmp 
   deallocate(wr_tmp)  
   !
@@ -366,6 +376,19 @@ program ed_bilayer
   !
   !
   !
+  !+- this has been tested
+  ! allocate(wr_tmp(437))
+  ! wr_tmp=linspace(wX-2*delta_wgrid,wX+2*delta_wgrid,437)
+  ! do iw=1,437     
+  !    call get_LR_freq(wr_tmp(iw),jL,jR)
+  !    DX_tmp = DX(jL) + (DX(jR)-DX(jL))/(wrX(jR)-wrX(jL))*(wr_tmp(iw)-wrX(jL))
+  !    if(master) write(800,*) wr_tmp(iw),wrX(jL),wrX(jR)     
+  !    if(master) write(900,*) wr_tmp(iw),-1.d0*dimag(DX_tmp)
+  ! end do
+  ! deallocate(wr_tmp)  
+  ! call mpi_stop
+  
+
   call get_pi_irreducible(pi_irreducible)
   !
   !
@@ -387,11 +410,13 @@ program ed_bilayer
   !
   uio=free_unit()
   if(master) then
-     open(uio,file='q0_lambda_vertex.out')
-     do iw=1,LX
-        write(uio,'(10F18.10)') wrX(iw),Lambda_vertex(1:2,1,iw)
+     do ik=1,1
+        open(uio,file='lambda_vertex_ik'//str(ik,Npad=4)//'.out')
+        do iw=1,LX
+           write(uio,'(10F18.10)') wrX(iw),Lambda_vertex(1:2,ik,iw)
+        end do
+        close(uio)
      end do
-     close(uio)
   end if
   !
   !call mpi_stop
@@ -478,7 +503,7 @@ contains
     !+ 
     Gkw=0.d0
     do iw=1,Lreal
-       Gkw(:,:,iw) = (wr(iw)+xi*eps+xmu)*eye(2) - Hk_loop(:,:,ik)
+       Gkw(:,:,iw) = (wr(iw)+xi*eps+xmu)*eye(2) - Hk_loop(:,:,ik)       
        Gkw(1,1,iw) = Gkw(1,1,iw) - Sigma(1,iw)
        Gkw(2,2,iw) = Gkw(2,2,iw) - Sigma(2,iw)
        call inv(Gkw(:,:,iw))
@@ -490,6 +515,30 @@ contains
     Akw(2,:) = -1.d0/pi*dimag(Gkw(2,2,:))
     !
   end subroutine get_Akw_serial
+
+
+
+  subroutine get_Akw_empty(ik,Akw)
+    integer,intent(in) :: ik 
+    real(8),dimension(:,:),allocatable,intent(out) :: Akw
+    complex(8),dimension(2,2,Lreal) :: Gkw
+    !
+    !
+    !+ 
+    Gkw=0.d0
+    do iw=1,Lreal
+       Gkw(:,:,iw) = (wr(iw)+xi*eps+xmu)*eye(2) 
+       !+- add the empty band 
+       Gkw(:,:,iw) = Gkw(:,:,iw) -  thop_empty*(Hk(:,:,ik) - pauli_z*Vel) - pauli_z*Vel - gap_empty*eye(2)       
+       call inv(Gkw(:,:,iw))
+    end do
+    if(allocated(Akw)) deallocate(Akw)
+    allocate(Akw(2,Lreal)); Akw=0.d0
+    !
+    Akw(1,:) = -1.d0/pi*dimag(Gkw(1,1,:))
+    Akw(2,:) = -1.d0/pi*dimag(Gkw(2,2,:))
+    !
+  end subroutine get_Akw_empty
 
 
 
@@ -519,7 +568,7 @@ contains
     complex(8),dimension(:,:,:),allocatable :: pi_irreducible_tmp
     real(8),dimension(:,:,:),allocatable :: re_pi_tmp,im_pi_tmp
     real(8) :: wtmp,wpX,wpX_,wtmp_rescale
-    real(8),dimension(:,:),allocatable :: Akw
+    real(8),dimension(:,:),allocatable :: Akw,Akw_empty
     real(8),dimension(2) :: Akw_tmp
     integer :: ik,jk,iik,iw,jw
     complex(8),dimension(2) :: sigma_tmp
@@ -542,6 +591,10 @@ contains
           iik=ik_diff(ik,jk)   !+- this is the grid difference
           !
           call get_Akw_serial(iik,Sreal(:,1,1,1,1,:),Akw)  !+- here set the array of fermionic greens function
+          if(thop_empty.gt.0d0) then
+             call get_Akw_empty(iik,Akw_empty)  !+- here set the array of fermionic greens function
+             Akw=Akw+Akw_empty
+          end if
           !
           do iw=1,Lx          
              wcmplx = wrX(iw) + xi*epsX
@@ -578,11 +631,11 @@ contains
     complex(8),dimension(:,:),allocatable,intent(out) :: SigmaX
     complex(8),dimension(:,:,:),allocatable,intent(in) :: L_vertex    
     real(8),dimension(:,:),allocatable :: im_sigmaX_tmp,im_sigmaX
-    real(8),dimension(2) :: ImL
+    real(8),dimension(2) :: ImL,ImL_l,ImL_r
     real(8),dimension(:,:), allocatable :: int_array
     real(8) :: wtmp
-    integer :: ik,iw,jw
-    real(8),dimension(:,:),allocatable :: Akw
+    integer :: ik,iw,jw,jwL,jwR
+    real(8),dimension(:,:),allocatable :: Akw,Akw_empty
     
     if(.not.allocated(L_vertex)) call mpi_stop('if(.not.allocated(L_vertex))')
     if(size(L_vertex,1).ne.2) call mpi_stop('if(size(L_vertex,1).ne.2)')
@@ -603,36 +656,96 @@ contains
        do ik=1,Lk
           !
           call get_Akw_serial(ik,Sreal(:,1,1,1,1,:),Akw)  !+- here set the array of fermionic greens function
+          call get_Akw_empty(ik,Akw_empty)  !+- here set the array of fermionic greens function
+          Akw = Akw + Akw_empty
           !
           if(allocated(int_array)) deallocate(int_array)
           allocate(int_array(2,Lreal)); int_array=0d0
           do jw=1,Lreal
              !
              wtmp=wrX(iw)+wr(jw)*thop_mev*1d-3
-             call linear_spline(wrX(:),dimag(L_vertex(1,:,ik)),wtmp,ImL(1))
-             call linear_spline(wrX(:),dimag(L_vertex(2,:,ik)),wtmp,ImL(2))
-             !
-             int_array(1,jw) = (fermi(wr(jw),beta) - fermi(wtmp,beta/thop_mev/1d-3))*ImL(1)*Akw(1,jw)
-             int_array(2,jw) = (fermi(wr(jw),beta) - fermi(wtmp,beta/thop_mev/1d-3))*ImL(2)*Akw(2,jw)
+             if(wtmp.gt.winiX.and.wtmp.lt.wfinX) then
+                ImL=0d0
+                !
+                !+- find the two closest left and right points on the grid and take the linear interpolation
+                ! call get_LR_freq(wtmp,jwL,jwR)
+                ! ImL_l = dimag(L_vertex(1:2,ik,jwL))
+                ! ImL_r = dimag(L_vertex(1:2,ik,jwR))
+                ! ImL(1:2) = ImL_l + (ImL_r-ImL_l)/(wrX(jwR)-wrX(jwL))*(wtmp-wrX(jwL))
+                call linear_spline(wrX(:),dimag(L_vertex(1,ik,:)),wtmp,ImL(1))
+                call linear_spline(wrX(:),dimag(L_vertex(2,ik,:)),wtmp,ImL(2))
+                !
+                int_array(1,jw) = (fermi(wr(jw),beta) - fermi(wtmp,beta/thop_mev/1d-3))*ImL(1)*Akw(1,jw)
+                int_array(2,jw) = (fermi(wr(jw),beta) - fermi(wtmp,beta/thop_mev/1d-3))*ImL(2)*Akw(2,jw)
+                !
+             end if
              !
           end do
           !
-          im_sigmaX_tmp(1,iw) = im_sigmaX_tmp(1,iw) - trapz(int_array(1,:),wr(1),wr(Lreal))
-          im_sigmaX_tmp(2,iw) = im_sigmaX_tmp(2,iw) - trapz(int_array(2,:),wr(1),wr(Lreal))
+          im_sigmaX_tmp(1,iw) = im_sigmaX_tmp(1,iw) - trapz(int_array(1,:),wr(1),wr(Lreal))/dble(Lk)
+          im_sigmaX_tmp(2,iw) = im_sigmaX_tmp(2,iw) - trapz(int_array(2,:),wr(1),wr(Lreal))/dble(Lk)
           !
        end do
        !
     end do
     call mpi_allreduce(im_sigmaX_tmp,im_sigmaX,2*LX,MPI_DOUBLE,MPI_SUM,MPI_COMM_WORLD,MPIerr)
     im_sigmaX_tmp=0d0
-    call get_kkt(im_sigmaX(1,:),im_sigmaX_tmp(1,:),wrX,'IR')
+    call get_kkt(im_sigmaX(1,:),im_sigmaX_tmp(1,:),wrX,'IR')    
     call get_kkt(im_sigmaX(2,:),im_sigmaX_tmp(2,:),wrX,'IR')
     if(allocated(SigmaX)) deallocate(SigmaX)
-    allocate(SigmaX(2,LX))
+    allocate(SigmaX(2,LX));SigmaX=0d0
     SigmaX=im_sigmaX_tmp+xi*im_sigmaX
     !
   end subroutine get_sigma_exciton
 
+
+  subroutine get_LR_freq(wtmp,jw_tmp,jw_tmp_)
+    real(8),intent(in) :: wtmp
+    integer,intent(out) :: jw_tmp,jw_tmp_
+    
+    !+- find the two points on wrX grid  closest to wtmp -+!
+    ! determine the sector of the grid 
+    if(wtmp.le.wrX(LwX)) then !+- the negative sector
+       !+-  the closest point to the left on the grid 
+       jw_tmp  = 1 + floor((wtmp-winiX)/dw1)
+       jw_tmp_ = 1 + ceiling((wtmp-winiX)/dw1)
+       !
+    else
+       if(wtmp.le.wrX(LwX+Lreal)) then  !+- the exciton sector -+!
+          !
+          if(wtmp.lt.wrX(LwX+1)) then
+             !+- between the grid 1 and 2
+             jw_tmp  = LwX
+             jw_tmp_ = LwX+1
+          else
+             !+- get the closest point on grid
+             jw_tmp  = 1 + floor((wtmp-wrX(LwX+1))/dw2)                      
+             jw_tmp_ = 1 + ceiling((wtmp-wrX(LwX+1))/dw2)                      
+             !
+             jw_tmp  = jw_tmp  + LwX
+             jw_tmp_ = jw_tmp_ + LwX
+             !
+          end if
+       else !+- the positive sector
+          !
+          if(wtmp.lt.wrX(LwX+Lreal+1)) then
+             !+- between the grid 2 and 3
+             jw_tmp  = LwX+Lreal
+             jw_tmp_ = LwX+Lreal+1                         
+          else                         
+             jw_tmp  = 1 + floor((wtmp-wrX(LwX+Lreal+1))/dw3)
+             jw_tmp_ = 1 + ceiling((wtmp-wrX(LwX+Lreal+1))/dw3)
+             !
+             jw_tmp  = jw_tmp  + LwX + Lreal
+             jw_tmp_ = jw_tmp_ + LwX + Lreal
+             !
+          end if
+          !
+       end if
+    end if
+    
+
+  end subroutine get_LR_freq
 
   
 
