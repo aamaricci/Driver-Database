@@ -44,10 +44,6 @@ program lancED
   call parse_input_variable(wGimp,"wGimp",finput,default=.false.)
   call parse_input_variable(mixG0,"mixG0",finput,default=.false.)
   call parse_input_variable(symOrbs,"symOrbs",finput,default=.false.)
-  call parse_input_variable(reGF,"REGF",finput,default=.false.)
-  call parse_input_variable(eps_start,"eps_start",finput,default=0.001d0)
-  call parse_input_variable(eps_stop,"eps_stop",finput,default=0.02d0)
-  call parse_input_variable(eps_len,"eps_len",finput,default=10)
   !
   call ed_read_input(trim(finput),comm)
 
@@ -174,25 +170,26 @@ program lancED
 
 
 
-  !>NEW
-  eps_len=10
-  allocate(wfreq(Lreal))
-  allocate(eps_array(eps_len))
-  wr = linspace(wini,wfin,Lreal)  !arbitrary domain, can change wini,wfin as you wish.
-  it=minloc(abs(wfreq));il=it(1)
-  eps_array = linspace(eps_start,eps_end,eps_len,.true.,.false.) 
-  do i=1,eps_len
-     eps = eps_array(i) 
-     write(*,*)"EPS=",eps
-     call ed_get_gimp(dcmplx(wfreq,eps),Hloc,Greal)
-     call dmft_print_function(Greal,"Greal_eps"//str(i,4),iprint=1,axis="real",zeta=wfreq)
-     write(201,*)eps,dimag(greal(:,:,:,:,il)),dreal(greal(:,:,:,:,il)),wfreq(il)
-     call ed_get_sigma(dcmplx(wfreq,eps),Hloc,Sreal)
-     call dmft_print_function(Sreal,"Sreal_eps"//str(i,4),iprint=1,axis="real",zeta=wfreq)
-     write(200,*)eps,dimag(sreal(:,:,:,:,il)),dreal(sreal(:,:,:,:,il)),wfreq(il)
-  enddo  ! MARY
+  ! !>NEW
+  ! eps_len=10
+  ! allocate(wfreq(Lreal))
+  ! allocate(eps_array(eps_len))
+  ! wr = linspace(wini,wfin,Lreal)  !arbitrary domain, can change wini,wfin as you wish.
+  ! it=minloc(abs(wfreq));il=it(1)
+  ! eps_array = linspace(eps_start,eps_end,eps_len,.true.,.false.) 
+  ! do i=1,eps_len
+  !    eps = eps_array(i) 
+  !    write(*,*)"EPS=",eps
+  !    call ed_get_gimp(dcmplx(wfreq,eps),Hloc,Greal)
+  !    call dmft_print_function(Greal,"Greal_eps"//str(i,4),iprint=1,axis="real",zeta=wfreq)
+  !    write(201,*)eps,dimag(greal(:,:,:,:,il)),dreal(greal(:,:,:,:,il)),wfreq(il)
+  !    call ed_get_sigma(dcmplx(wfreq,eps),Hloc,Sreal)
+  !    call dmft_print_function(Sreal,"Sreal_eps"//str(i,4),iprint=1,axis="real",zeta=wfreq)
+  !    write(200,*)eps,dimag(sreal(:,:,:,:,il)),dreal(sreal(:,:,:,:,il)),wfreq(il)
+  ! enddo  ! MARY
 
-
+  call finalize_MPI()
+  
 
 end program lancED
 
