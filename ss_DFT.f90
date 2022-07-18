@@ -187,6 +187,17 @@ program ss_DFT
   if(master)call TB_write_Hloc(Hloc,"w90Hloc.dat")
 
 
+  !Solve for the renormalized bands:
+  if(BandsFlag)then
+     call start_timer
+     if(master)call TB_Solve_model(TB_w90_model,Nlso,kpath,Nkpath,&
+          colors_name=[black,red,green,blue,magenta,black,red,green,blue,magenta],&
+          points_name=points_name,& 
+          file="Bands_DFT",iproject=.true.)
+     call stop_timer("SS get zBands")
+  endif
+
+
   !########################################
   !SOLVE SS
   !SS order is: Norb,Nlat,Nspin

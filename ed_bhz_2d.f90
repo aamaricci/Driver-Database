@@ -468,6 +468,7 @@ contains
     call TB_build_model(Hk,hk_bhz,Nso,kpath,Nkpath)
     !
     !
+    
     allocate(Sreal_(Nspin,Nspin,Norb,Norb,Lw));Sreal_=zero
     do ispin=1,Nspin
        do jspin=1,Nspin

@@ -6,7 +6,7 @@
 #EXE=bhz_2d_mf_fluct
 #EXE=ed_bilayer_hc
 #EXE=ed_bilayer_square
-EXE=ed_hm_square
+EXE=ss_DFT
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
@@ -15,7 +15,7 @@ DIREXE=$(HOME)/.bin
 #$ LIB_ED: either use *edlat* or *dmft_ed* (until we fix the naming conventions)
 #$ LIB_SS: specify slave spins library if any
 LIB_ED=dmft_ed
-#LIB_SS=slave_spins
+LIB_SS=slave_spins
 
 
 
