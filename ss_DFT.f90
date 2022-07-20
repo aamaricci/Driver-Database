@@ -213,7 +213,7 @@ program ss_DFT
      if(master)call TB_Solve_model(ss_Hk_model,Nlso,kpath,Nkpath,&
           colors_name=[black,red,green,blue,magenta,black,red,green,blue,magenta],&
           points_name=points_name,& 
-          file="zBands_ssDFT",iproject=.true.)
+          file="zBands_ssDFT",iproject=.false.)
      call stop_timer("SS get zBands")
   endif
 
