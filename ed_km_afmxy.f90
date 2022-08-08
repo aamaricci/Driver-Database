@@ -1,7 +1,7 @@
 program ed_kanemele
-   USE DMFT_ED
-   USE SCIFOR
-   USE DMFT_TOOLS
+   USE DMFT_ED    !0.6.0
+   USE SCIFOR     !4.9.4
+   USE DMFT_TOOLS !2.3.8
    USE MPI
    implicit none
 
@@ -42,8 +42,9 @@ program ed_kanemele
    logical                                       :: neelsym,xkick,ykick,getbands
    !
    !Replica Hamiltonian
-   real(8),dimension(:,:),allocatable            :: lambdasym_vector ![Nlat,:]
-   complex(8),dimension(:,:,:,:,:),allocatable   :: Hsym_basis
+   real(8),dimension(:,:,:),allocatable          :: lambdasym_vectors ![Nlat,Nbath,Nsym]
+   complex(8),dimension(:,:,:,:,:),allocatable   :: Hsym_basis   ![size(Hloc),Nsym]
+   real(8),dimension(:,:),allocatable            :: onsite_band  !temporary [Nlat,Nbath]
    !
    !MPI
    integer                                       :: comm,rank
@@ -99,6 +100,8 @@ program ed_kanemele
    call add_ctrl_var(wini,'wini')
    call add_ctrl_var(wfin,'wfin')
    call add_ctrl_var(eps,"eps")
+   call add_ctrl_var(nbath,"nbath")
+   call add_ctrl_var(ed_hw_bath,"ed_hw_bath")
 
 
    !INPUT VALIDATION
@@ -153,53 +156,58 @@ program ed_kanemele
    allocate(Greal(Nlat,Nspin,Nspin,Norb,Norb,Lreal));Greal=zero
 
    !SETUP HREPLICA SYMMETRIES:
+   call build_replica_band(onsite_band,ed_hw_bath,Nbath)
    select case(trim(BathSpins))
 
     case default
       stop "BathSpins not in [x; xy; xz; xyz]"
 
     case("x")  !Only X spin component in the bath
-      allocate(lambdasym_vector(Nlat,2))
+      allocate(lambdasym_vectors(Nlat,Nbath,2))
       allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,2))
       Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
       Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_x,Nspin,Norb)
-      lambdasym_vector(1,:)=[0d0, 0d0]
-      lambdasym_vector(2,:)=[0d0, 0d0]
+      lambdasym_vectors(:,:,1)=onsite_band
+      lambdasym_vectors(:,:,2)=0d0 !unbroken symmetry by default
 
     case("xy")  !Only XY spin components in the bath
-      allocate(lambdasym_vector(Nlat,3))
+      allocate(lambdasym_vectors(Nlat,Nbath,3))
       allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
       Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
       Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_x,Nspin,Norb)
       Hsym_basis(:,:,:,:,3)=so2nn_reshape(pauli_sigma_y,Nspin,Norb)
-      lambdasym_vector(1,:)=[0d0, 0d0, 0d0]
-      lambdasym_vector(2,:)=[0d0, 0d0, 0d0]
+      lambdasym_vectors(:,:,1)=onsite_band
+      lambdasym_vectors(:,:,2)=0d0 !unbroken magnetic
+      lambdasym_vectors(:,:,3)=0d0 !symmetry by default
 
     case("xz")  !Only XZ spin components in the bath
-      allocate(lambdasym_vector(Nlat,3))
+      allocate(lambdasym_vectors(Nlat,Nbath,3))
       allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
       Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
       Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_x,Nspin,Norb)
       Hsym_basis(:,:,:,:,3)=so2nn_reshape(pauli_sigma_z,Nspin,Norb)
-      lambdasym_vector(1,:)=[0d0, 0d0, 0d0]
-      lambdasym_vector(2,:)=[0d0, 0d0, 0d0]
+      lambdasym_vectors(:,:,1)=onsite_band
+      lambdasym_vectors(:,:,2)=0d0 !unbroken magnetic
+      lambdasym_vectors(:,:,3)=0d0 !symmetry by default
 
     case("xyz") !Full XYZ spin freedom in the bath
-      allocate(lambdasym_vector(Nlat,4))
+      allocate(lambdasym_vectors(Nlat,Nbath,4))
       allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,4))
       Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
       Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_x,Nspin,Norb)
       Hsym_basis(:,:,:,:,3)=so2nn_reshape(pauli_sigma_y,Nspin,Norb)
       Hsym_basis(:,:,:,:,4)=so2nn_reshape(pauli_sigma_z,Nspin,Norb);
-      lambdasym_vector(1,:)=[0d0, 0d0, 0d0, 0d0]
-      lambdasym_vector(2,:)=[0d0, 0d0, 0d0, 0d0]
+      lambdasym_vectors(:,:,1)=onsite_band
+      lambdasym_vectors(:,:,2)=0d0 !unbroken magnetic
+      lambdasym_vectors(:,:,3)=0d0 !symmetry on all
+      lambdasym_vectors(:,:,4)=0d0 !axes by default
 
    end select
 
-   !SETUP SYMMETRY BREAKING KICKS
+   !SETUP SYMMETRY BREAKING KICKS (AFM order)
    if(xKICK)then
-      lambdasym_vector(1,2)= +sb_field
-      lambdasym_vector(2,2)= -sb_field
+      lambdasym_vectors(1,:,2) = +sb_field
+      lambdasym_vectors(2,:,2) = -sb_field
       !For the log file
       if(master)write(*,*) "*************************************************"
       if(master)write(*,*) "*                                               *"
@@ -208,8 +216,8 @@ program ed_kanemele
       if(master)write(*,*) "*************************************************"
    endif
    if(yKICK)then  !Safe: look at the preliminary checks
-      lambdasym_vector(1,3)= +sb_field
-      lambdasym_vector(2,3)= -sb_field
+      lambdasym_vectors(1,:,3) = +sb_field
+      lambdasym_vectors(2,:,3) = -sb_field
       !For the log file
       if(master)write(*,*) "*************************************************"
       if(master)write(*,*) "*                                               *"
@@ -219,7 +227,7 @@ program ed_kanemele
    endif
 
    !SETUP H_replica
-   call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
+   call ed_set_Hreplica(Hsym_basis,lambdasym_vectors)
    !this is now elevated to RDMFT: ineq sites (1,2) for the lambdas
 
    !SETUP SOLVER
@@ -493,8 +501,32 @@ contains
    end function nn2so_reshape
 
 
-
-
+   subroutine build_replica_band(lambdas,bandwidth,Nreplica)
+      real(8),allocatable,dimension(:,:),intent(out)   :: lambdas
+      real(8),intent(in)                               :: bandwidth
+      integer,intent(in)                               :: Nreplica
+      integer                                          :: ireplica
+      real(8),dimension(Nreplica)                      :: tempvec
+      real(8)                                          :: tempval
+      !
+      allocate(lambdas(Nlat,Nbath))
+      !
+      do ireplica=1,Nreplica
+         tempval = ireplica - 1 - (Nreplica-1)/2d0       ![-(N-1)/2 : (N-1)/2]
+         tempval = tempval * 2 * bandwidth/(Nreplica-1)  !-bandwidth:bandwidth
+         tempvec(ireplica) = tempval
+      enddo
+      !
+      if(mod(Nreplica,2)==0)then
+         tempvec(Nreplica/2) = -1d-1  !Much needed small energies around the
+         tempvec(Nreplica/2+1) = 1d-1 !Fermi level (if EF itself not present)
+      endif
+      !
+      do ilat=1,Nlat
+         lambdas(ilat,:) = tempvec
+      enddo
+      !
+   end subroutine build_replica_band
 
 
 

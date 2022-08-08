@@ -1,7 +1,7 @@
 program ed_kanemele
-   USE DMFT_ED
-   USE SCIFOR
-   USE DMFT_TOOLS
+   USE DMFT_ED    !0.6.0
+   USE SCIFOR     !4.9.4
+   USE DMFT_TOOLS !2.3.8
    USE MPI
    implicit none
 
@@ -41,12 +41,13 @@ program ed_kanemele
    logical                                       :: neelsym,afmkick,getbands
    !
    !Replica Hamiltonian
-   real(8),dimension(:,:),allocatable            :: lambdasym_vector ![Nlat,:]
-   complex(8),dimension(:,:,:,:,:),allocatable   :: Hsym_basis
+   real(8),dimension(:,:,:),allocatable          :: lambdasym_vectors ![Nlat,Nbath,Nsym]
+   complex(8),dimension(:,:,:,:,:),allocatable   :: Hsym_basis   ![size(Hloc),Nsym]
+   real(8),dimension(:,:),allocatable            :: onsite_band  !temporary [Nlat,Nbath]
    !
    !MPI
-   integer                                     :: comm,rank
-   logical                                     :: master
+   integer                                       :: comm,rank
+   logical                                       :: master
 
 
    !MPI INIT:
@@ -94,6 +95,8 @@ program ed_kanemele
    call add_ctrl_var(wini,'wini')
    call add_ctrl_var(wfin,'wfin')
    call add_ctrl_var(eps,"eps")
+   call add_ctrl_var(nbath,"nbath")
+   call add_ctrl_var(ed_hw_bath,"ed_hw_bath")
 
 
    !INPUT VALIDATION
@@ -148,19 +151,20 @@ program ed_kanemele
    if(bath_type=="replica")then
       !SETUP REPLICA BATH
       !setup symmetry-basis:
-      allocate(lambdasym_vector(Nlat,2))
+      allocate(lambdasym_vectors(Nlat,Nbath,2))
       allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,2))
       Hsym_basis(:,:,:,:,1)=so2nn_reshape(pauli_sigma_0,Nspin,Norb)
       Hsym_basis(:,:,:,:,2)=so2nn_reshape(pauli_sigma_z,Nspin,Norb)
-      lambdasym_vector(1,:)=[0d0, 0d0]
-      lambdasym_vector(2,:)=[0d0, 0d0]
+      call build_replica_band(onsite_band,ed_hw_bath,Nbath)
+      lambdasym_vectors(:,:,1)=onsite_band
+      lambdasym_vectors(:,:,2)=0d0 !unbroken
       !setup symmetry-breaking AFM kick, if requested in the inputfile
       if(afmkick)then
-         lambdasym_vector(1,2)= +sb_field
-         lambdasym_vector(2,2)= -sb_field
+         lambdasym_vectors(1,:,2) = +sb_field
+         lambdasym_vectors(2,:,2) = -sb_field
       endif
       !setup H_replica
-      call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
+      call ed_set_Hreplica(Hsym_basis,lambdasym_vectors)
       !this is now elevated to RDMFT: ineq sites (1,2) for the lambdas
       Nb=ed_get_bath_dimension(Hsym_basis)
       allocate(Bath(Nlat,Nb))
@@ -459,7 +463,32 @@ contains
    end function nn2so_reshape
 
 
-
+   subroutine build_replica_band(lambdas,bandwidth,Nreplica)
+      real(8),allocatable,dimension(:,:),intent(out)   :: lambdas
+      real(8),intent(in)                               :: bandwidth
+      integer,intent(in)                               :: Nreplica
+      integer                                          :: ireplica
+      real(8),dimension(Nreplica)                      :: tempvec
+      real(8)                                          :: tempval
+      !
+      allocate(lambdas(Nlat,Nbath))
+      !
+      do ireplica=1,Nreplica
+         tempval = ireplica - 1 - (Nreplica-1)/2d0       ![-(N-1)/2 : (N-1)/2]
+         tempval = tempval * 2 * bandwidth/(Nreplica-1)  !-bandwidth:bandwidth
+         tempvec(ireplica) = tempval
+      enddo
+      !
+      if(mod(Nreplica,2)==0)then
+         tempvec(Nreplica/2) = -1d-1  !Much needed small energies around the
+         tempvec(Nreplica/2+1) = 1d-1 !Fermi level (if EF itself not present)
+      endif
+      !
+      do ilat=1,Nlat
+         lambdas(ilat,:) = tempvec
+      enddo
+      !
+   end subroutine build_replica_band
 
 
 
