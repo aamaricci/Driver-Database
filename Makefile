@@ -6,7 +6,7 @@
 #EXE=bhz_2d_mf_fluct
 #EXE=ed_bilayer_hc
 #EXE=ed_bilayer_square
-EXE=ss_DFT
+EXE=ss_hm_2d
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
