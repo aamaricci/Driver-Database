@@ -3,10 +3,13 @@
 #$ COMPILER: supported compilers are ifort, gnu >v4.7 or use mpif90
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
+
 #EXE=bhz_2d_mf_fluct
 #EXE=ed_bilayer_hc
+EXE=ed_km_flakes
 #EXE=ed_bilayer_square
-EXE=ss_hm_2d
+#EXE=ss_DFT
+
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
@@ -14,15 +17,14 @@ DIREXE=$(HOME)/.bin
 # LIBRARIES TO BE INCLUDED
 #$ LIB_ED: either use *edlat* or *dmft_ed* (until we fix the naming conventions)
 #$ LIB_SS: specify slave spins library if any
+#$ LIB_HT: specify custom tight-binding library if any
 LIB_ED=dmft_ed
 LIB_SS=slave_spins
-
+LIB_TB=honeytools
 
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-GLOB_INC:=$(shell pkg-config --cflags dmft_tools dmft_ed  scifor)
-GLOB_LIB:=$(shell pkg-config --libs dmft_ed dmft_tools scifor)
 
 ifdef LIB_ED
 GLOB_INC+=$(shell pkg-config --cflags ${LIB_ED})
@@ -34,9 +36,13 @@ GLOB_INC+=$(shell pkg-config --cflags ${LIB_SS})
 GLOB_LIB+=$(shell pkg-config --libs ${LIB_SS})
 endif
 
+ifdef LIB_TB
+GLOB_INC+=$(shell pkg-config --cflags ${LIB_TB})
+GLOB_LIB+=$(shell pkg-config --libs ${LIB_TB})
+endif
+
 GLOB_INC+=$(shell pkg-config --cflags dmft_tools scifor)
 GLOB_LIB+=$(shell pkg-config --libs   dmft_tools scifor)
-
 
 
 ifeq ($(PLAT),intel)
