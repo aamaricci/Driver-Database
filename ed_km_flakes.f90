@@ -1,7 +1,7 @@
 program ed_kanemele_flakes
    USE DMFT_ED    !0.6.0
-   USE SCIFOR     !4.9.4
-   USE DMFT_TOOLS !2.3.8
+   USE SCIFOR     !4.9.6
+   USE DMFT_TOOLS !2.4.3
    USE HONEYTOOLS !0.2.1
    USE HONEYPLOTS !0.2.1
    USE MPI
@@ -34,7 +34,7 @@ program ed_kanemele_flakes
    !Variables for the model:
    integer,parameter                             :: Lk=1 ! just one k-point
    integer                                       :: radius
-   real(8)                                       :: t1,t2,iphi,phi,Mh,Bz,wmixing
+   real(8)                                       :: t1,t2,nphi,phi,Mh,Bz,wmixing
    character(len=32)                             :: finput
    character(len=32)                             :: HijFILE
    !
@@ -71,8 +71,8 @@ program ed_kanemele_flakes
       comment='NN hopping, fixes noninteracting bandwidth')
    call parse_input_variable(t2,"T2",finput,default=0.1d0,&
       comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
-   call parse_input_variable(iphi,"iPHI",finput,default=0.5d0,&
-      comment='Haldane-like flux for the SOI term, in units of PI')
+   call parse_input_variable(nphi,"NPHI",finput,default=0.5d0,&
+      comment='Haldane-like flux for the SO term, in units of PI')
    call parse_input_variable(mh,"MH",finput,default=0d0,&
       comment='On-site staggering, aka Semenoff-Mass term')
    call parse_input_variable(Bz,"Bz",Finput,default=0d0,&
@@ -386,7 +386,7 @@ contains
          Hdw(indices(i),indices(i)) = - Mh - Bz
       enddo
       !NOW THE PAINFUL SOC PHASES <'TT_TT'>
-      phi = iphi * pi
+      phi = nphi * pi
       l = 0 !counter
       do i = 1,km_flake%size
          do j = i+1,km_flake%size

@@ -1,7 +1,7 @@
 program ed_kanemele
    USE DMFT_ED    !0.6.0
-   USE SCIFOR     !4.9.4
-   USE DMFT_TOOLS !2.3.8
+   USE SCIFOR     !4.9.6
+   USE DMFT_TOOLS !2.4.3
    USE MPI
    implicit none
 
@@ -33,7 +33,7 @@ program ed_kanemele
    !
    !Variables for the model:
    integer                                       :: Nk,Nkpath
-   real(8)                                       :: t1,t2,phi,Mh,Bz,wmixing
+   real(8)                                       :: t1,t2,nphi,phi,Mh,Bz,wmixing
    character(len=32)                             :: finput
    character(len=32)                             :: hkfile
    !
@@ -71,8 +71,8 @@ program ed_kanemele
       comment='NN hopping, fixes noninteracting bandwidth')
    call parse_input_variable(t2,"T2",finput,default=0.1d0,&
       comment='Haldane-like NNN hopping-strenght, corresponds to lambda_SO in KM notation')
-   call parse_input_variable(phi,"PHI",finput,default=pi/2d0,&
-      comment='Haldane-like flux for the SOI term, KM model corresponds to a pi/2 flux')
+   call parse_input_variable(nphi,"NPHI",finput,default=0.5d0,&
+      comment='Haldane-like flux for the SO term, in units of PI')
    call parse_input_variable(mh,"MH",finput,default=0d0,&
       comment='On-site staggering, aka Semenoff-Mass term')
    call parse_input_variable(Bz,"Bz",Finput,default=0d0,&
@@ -348,6 +348,8 @@ contains
       complex(8),dimension(Nlso,Nlso) :: Hk
       real(8)                         :: h0,hx,hy,hz
       real(8)                         :: kdote1, kdote2
+      !
+      phi = nphi * pi
       !
       kdote1 = dot_product(kpoint,e1)
       kdote2 = dot_product(kpoint,e2)
