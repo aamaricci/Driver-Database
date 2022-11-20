@@ -48,8 +48,11 @@ program ed_bilayer
   integer,dimension(:,:),allocatable :: ij2ik
   !
   !+- exciton-polaron problem
-  real(8)              :: thop_mev,am_nm,thop_empty,gap_empty
+  real(8)              :: thop_mev,am_nm,thop_empty,gap_empty,beta_ancillary,dos_ancillary
   real(8)              :: wX,epsX,winiX,wfinX,mX,h0,delta_wgrid
+
+  logical              :: empty_quadratic
+  
 
   integer              :: LwX,Lx,iw,ik,jL,jR
   real(8),dimension(:),allocatable :: wrX,wr_tmp,wr
@@ -69,6 +72,7 @@ program ed_bilayer
   real(8),dimension(:,:),allocatable :: lambda_imag_tmp
   real(8) :: Vex
   real(8) :: dw1,dw2,dw3
+  logical :: tmp_debug_vertex
   !
   !
   call init_MPI()
@@ -106,6 +110,14 @@ program ed_bilayer
   call parse_input_variable(thop_mev,"thop_mev",finput,default=0.5d0,comment='hopping in meV')
   call parse_input_variable(thop_empty,"thop_empty",finput,default=2.d0,comment='thop in the the 2nd moire band; dimensionless')
   call parse_input_variable(gap_empty,"gap_empty",finput,default=30.d0,comment='gap btw 1st and 2nd moire bands; dimensionless')
+
+
+  call parse_input_variable(empty_quadratic,"empty_quadratic",finput,default=.false.,comment='gap btw 1st and 2nd moire bands; dimensionless')
+  call parse_input_variable(beta_Ancillary,"beta_ancillary",finput,default=1.d0,comment='smooth the ancillary dos')
+  call parse_input_variable(dos_ancillary,"dos_ancillary",finput,default=0.1d0,comment='smooth the ancillary dos')
+
+  call parse_input_variable(tmp_debug_vertex,"tmp_debug_vertex",finput,default=.false.,comment='tmp debug')
+
   !  
   call parse_input_variable(am_nm,"am_nm",finput,default=25d0,comment='moire periodicity in nm')
   !
@@ -404,19 +416,34 @@ program ed_bilayer
   !  
   if(allocated(Lambda_vertex)) deallocate(Lambda_vertex)
   allocate(Lambda_vertex(2,Lk,LX)); Lambda_vertex=0d0
-  Lambda_vertex=Vex*Vex*Pi_irreducible/(1.0+Vex*Pi_irreducible)
+  if(tmp_debug_vertex) then
+     Pi_irreducible = -1.d0*Pi_irreducible
+     Lambda_vertex = -Vex*Vex*Pi_irreducible/(1.0-Vex*Pi_irreducible)
+  else
+     Lambda_vertex=Vex*Vex*Pi_irreducible/(1.0+Vex*Pi_irreducible)
+  end if
   !
   !+- here compute the vertex
   !
   uio=free_unit()
   if(master) then
-     do ik=1,1
-        open(uio,file='lambda_vertex_ik'//str(ik,Npad=4)//'.out')
-        do iw=1,LX
-           write(uio,'(10F18.10)') wrX(iw),Lambda_vertex(1:2,ik,iw)
+     if(tmp_debug_vertex) then
+        do ik=1,Lk
+           open(uio,file='lambda_vertex_ik'//str(ik,Npad=4)//'.out')
+           do iw=1,LX
+              write(uio,'(10F18.10)') wrX(iw),Lambda_vertex(1:2,ik,iw)
+           end do
+           close(uio)           
         end do
-        close(uio)
-     end do
+     else
+        do ik=1,1
+           open(uio,file='lambda_vertex_ik'//str(ik,Npad=4)//'.out')
+           do iw=1,LX
+              write(uio,'(10F18.10)') wrX(iw),Lambda_vertex(1:2,ik,iw)
+           end do
+           close(uio)           
+        end do
+     end if
   end if
   !
   !call mpi_stop
@@ -438,10 +465,23 @@ program ed_bilayer
   DX_dressed(1,:) = 1d0/(DX**(-1d0)-sigma_exciton(1,:))
   DX_dressed(2,:) = 1d0/(DX**(-1d0)-sigma_exciton(2,:))
 
-
   uio=free_unit()
   if(master) then
      open(uio,file='dressedX.out')
+     do iw=1,LX
+        write(uio,'(10F18.10)') wrX(iw),DX_dressed(1:2,iw)
+     end do
+     close(uio)
+  end if
+
+
+  DX_dressed=0d0
+  DX_dressed(1,:) = 1d0/(DX**(-1d0)-sigma_exciton(1,:)-Vex*dens(1))
+  DX_dressed(2,:) = 1d0/(DX**(-1d0)-sigma_exciton(2,:)-Vex*dens(2))
+
+  uio=free_unit()
+  if(master) then
+     open(uio,file='hartree_dressedX.out')
      do iw=1,LX
         write(uio,'(10F18.10)') wrX(iw),DX_dressed(1:2,iw)
      end do
@@ -522,21 +562,38 @@ contains
     integer,intent(in) :: ik 
     real(8),dimension(:,:),allocatable,intent(out) :: Akw
     complex(8),dimension(2,2,Lreal) :: Gkw
+    real(8) :: tmpWband
     !
     !
     !+ 
-    Gkw=0.d0
-    do iw=1,Lreal
-       Gkw(:,:,iw) = (wr(iw)+xi*eps+xmu)*eye(2) 
-       !+- add the empty band 
-       Gkw(:,:,iw) = Gkw(:,:,iw) -  thop_empty*(Hk(:,:,ik) - pauli_z*Vel) - pauli_z*Vel - gap_empty*eye(2)       
-       call inv(Gkw(:,:,iw))
-    end do
     if(allocated(Akw)) deallocate(Akw)
     allocate(Akw(2,Lreal)); Akw=0.d0
-    !
-    Akw(1,:) = -1.d0/pi*dimag(Gkw(1,1,:))
-    Akw(2,:) = -1.d0/pi*dimag(Gkw(2,2,:))
+       
+    if(.not.empty_quadratic) then
+       Gkw=0.d0
+       do iw=1,Lreal
+          Gkw(:,:,iw) = (wr(iw)+xi*eps+xmu)*eye(2) 
+          !+- add the ancillary empty band 
+          Gkw(:,:,iw) = Gkw(:,:,iw) -  thop_empty*(Hk(:,:,ik) - pauli_z*Vel) - pauli_z*Vel - gap_empty*eye(2)                        
+          call inv(Gkw(:,:,iw))
+       end do
+       !
+       Akw(1,:) = -1.d0/pi*dimag(Gkw(1,1,:))
+       Akw(2,:) = -1.d0/pi*dimag(Gkw(2,2,:))
+
+    else
+       ! just add a broad background
+       tmpWband=10.d0*thop_empty
+
+
+       do iw=1,Lreal
+          Akw(1,iw) = fermi(-wr(iw)+gap_empty-tmpWband*0.5d0+Vel,beta_ancillary)*fermi(wr(iw)-gap_empty-tmpWband*0.5d0-Vel,beta_ancillary)*dos_ancillary/thop_empty
+          Akw(2,iw) = fermi(-wr(iw)+gap_empty-tmpWband*0.5d0-Vel,beta_ancillary)*fermi(wr(iw)-gap_empty-tmpWband*0.5d0+Vel,beta_ancillary)*dos_ancillary/thop_empty
+       end do
+          !Gkw(:,:,iw) = Gkw(:,:,iw) -  0.5*h0*dot_product(kgrid(ik,:),kgrid(ik,:))/am_nm/am_nm/(thop_mev*1d-3) - pauli_z*Vel - gap_empty*eye(2) 
+       
+    end if
+
     !
   end subroutine get_Akw_empty
 
@@ -677,13 +734,28 @@ contains
                 !
                 int_array(1,jw) = (fermi(wr(jw),beta) - fermi(wtmp,beta/thop_mev/1d-3))*ImL(1)*Akw(1,jw)
                 int_array(2,jw) = (fermi(wr(jw),beta) - fermi(wtmp,beta/thop_mev/1d-3))*ImL(2)*Akw(2,jw)
+
+                ! !+- test
+                ! if(abs(wrX(iw)-wX).lt.0.01) then
+                !    write(500,*) wr(jw),(fermi(wr(jw),beta) - fermi(wtmp,beta/thop_mev/1d-3)),wtmp/thop_mev/1d-3
+                ! end if
                 !
              end if
              !
           end do
+          !if(abs(wrX(iw)-wX).lt.0.01) call mpi_stop
+          
           !
+          ! if(tmp_debug_vertex) then
+          !    im_sigmaX_tmp(1,iw) = im_sigmaX_tmp(1,iw) + trapz(int_array(1,:),wr(1),wr(Lreal))/dble(Lk)
+          !    im_sigmaX_tmp(2,iw) = im_sigmaX_tmp(2,iw) + trapz(int_array(2,:),wr(1),wr(Lreal))/dble(Lk)
+          ! else
+          !    im_sigmaX_tmp(1,iw) = im_sigmaX_tmp(1,iw) - trapz(int_array(1,:),wr(1),wr(Lreal))/dble(Lk)
+          !    im_sigmaX_tmp(2,iw) = im_sigmaX_tmp(2,iw) - trapz(int_array(2,:),wr(1),wr(Lreal))/dble(Lk)
+          ! end if
           im_sigmaX_tmp(1,iw) = im_sigmaX_tmp(1,iw) - trapz(int_array(1,:),wr(1),wr(Lreal))/dble(Lk)
           im_sigmaX_tmp(2,iw) = im_sigmaX_tmp(2,iw) - trapz(int_array(2,:),wr(1),wr(Lreal))/dble(Lk)
+
           !
        end do
        !
@@ -693,7 +765,7 @@ contains
     call get_kkt(im_sigmaX(1,:),im_sigmaX_tmp(1,:),wrX,'IR')    
     call get_kkt(im_sigmaX(2,:),im_sigmaX_tmp(2,:),wrX,'IR')
     if(allocated(SigmaX)) deallocate(SigmaX)
-    allocate(SigmaX(2,LX));SigmaX=0d0
+    allocate(SigmaX(2,LX));SigmaX=0d0    
     SigmaX=im_sigmaX_tmp+xi*im_sigmaX
     !
   end subroutine get_sigma_exciton
