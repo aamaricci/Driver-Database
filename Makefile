@@ -6,7 +6,8 @@
 
 #EXE=bhz_2d_mf_fluct
 #EXE=ed_bilayer_hc
-EXE=ed_km_flakes
+#EXE=ed_km_flakes
+EXE=ed_hm_plaquette
 #EXE=ed_bilayer_square
 #EXE=ss_DFT
 
@@ -17,10 +18,10 @@ DIREXE=$(HOME)/.bin
 # LIBRARIES TO BE INCLUDED
 #$ LIB_ED: either use *edlat* or *dmft_ed* (until we fix the naming conventions)
 #$ LIB_SS: specify slave spins library if any
-#$ LIB_HT: specify custom tight-binding library if any
-LIB_ED=dmft_ed
+#$ LIB_TB: specify custom tight-binding library if any
+LIB_ED=edlat
 LIB_SS=slave_spins
-LIB_TB=honeytools
+#LIB_TB=honeytools
 
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
