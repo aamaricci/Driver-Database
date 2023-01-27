@@ -2,6 +2,8 @@ program bhz_2d
   !LIBRARIES:
   USE SCIFOR
   USE DMFT_TOOLS
+  !
+  USE MPI
   implicit none
   !
   !SET THE DIMENSION OF THE PROBLEM
@@ -44,9 +46,9 @@ program bhz_2d
   integer                                     :: m_work
   !
   integer                                     :: Nparams
-  integer                                     :: i,j,k,ik,m
+  integer                                     :: i,j,k,ik,m,n
   integer                                     :: info,unit
-  real(8)                                     :: x(1),dx(1)
+  real(8)                                     :: x(1),dx(1),ran(10)
   logical                                     :: iexist
   logical                                     :: converged
   complex(8),dimension(:,:,:),allocatable     :: Hk
@@ -55,7 +57,19 @@ program bhz_2d
   character(len=20)                           :: Finput
   real(8),dimension(:),allocatable            :: params
   real(8),dimension(:),allocatable            :: params_prev
-  real(8),dimension(2,2)                      :: Chi_qv
+  real(8),dimension(2,2)                      :: Chi_qv,Chi
+  !MPI Vars:
+  integer                                     :: comm,ierr,mpiId,mpiSize
+  logical                                     :: master
+
+  call init_MPI()
+  comm = MPI_COMM_WORLD
+  call StartMsg_MPI(comm)
+  mpiId  = get_Rank_MPI(comm)
+  mpiSize= get_Size_MPI(comm)
+  master = get_Master_MPI(comm)
+
+
 
   call parse_cmd_variable(Finput,"FINPUT",default="input.conf")
   call parse_input_variable(gt,"GT",Finput,default=1d0)
@@ -97,25 +111,25 @@ program bhz_2d
   gammaN = kron_pauli( pauli_sigma_0, pauli_tau_0)
   Nky    = Nkx
   Nktot  = Nkx*Nky
-  print*,Nktot
   !
   L      = Lf+Lb
-  write(*,*)"Using L freq.=",L
+  if(master)write(*,*)"Using L freq.=",L
 
 
   !>SOLVE MF PROBLEM 1st: >>ACTHUNG<< This solution does not use BZ basis defined later!!
-  call start_timer()
+
+  if(master)call start_timer()
   x(1)=-abs(tz0)
   dx(1)=0.1d0
   call fmin(bhz_f,x,lambda=dx)
   Tz=x(1)
-  open(free_unit(unit),file="mf_TzVSg.dat")
-  write(unit,*)gt,gn,Tz
-  close(unit)
-  write(*,*) "Tz=",Tz
-  call stop_timer(" Mean-Field")
-  call sleep(1)
-
+  if(master)then
+     open(free_unit(unit),file="mf_TzVSg.dat")
+     write(unit,*)gt,gn,Tz
+     close(unit)
+     write(*,*) "Tz=",Tz
+     call stop_timer(" Mean-Field")      
+  endif
 
 
   !> SOLVE FLUCTUATIONS:
@@ -125,25 +139,29 @@ program bhz_2d
   allocate(kgrid(Nktot,2))      !Nktot=# tot kpoints, 2= 2D
   call TB_build_kgrid([Nkx,Nky],kgrid)
 
-  !+ ReSigma(iw_n)[L] + ImSigma(iw_n)[L] + Tz[1] + <|d+|**2>[1] + <|d-|**2> [1]
-  Nparams = 3 + 2*L
+  !+ ReSigma(iw_n)[L] + ImSigma(iw_n)[L] + Tz[1] + <|d+|**2>[1] 
+  Nparams = 2 + 2*L
   allocate( params(Nparams), params_prev(Nparams), p_work(Nparams))
 
   !Start from MF solution
-  params = [dble(zeros(L)),dble(zeros(L)),Tz,abs(dplus0),abs(dminus0)]
-  inquire(file="params.restart",exist=iexist)
-  if(iexist)call read_array("params.restart",params)
-  call save_array("params.init",params)
+  params = [dble(zeros(L)),dble(zeros(L)),Tz,abs(dplus0)]
+  if(master)then
+     inquire(file="params.restart",exist=iexist)
+     if(iexist)call read_array("params.restart",params)
+     call save_array("params.init",params)
+  endif
+  call bcast_MPI(comm,params)
 
-  open(free_unit(unit),file="chi0.dat ")
-  do m=1,Lb
+  if(master)then
+     open(free_unit(unit),file="chi0_q0.dat ")
      p_work   = params
-     qvec_work=[0d0,0d0]
-     call Intk_SumMats_Chi_qv(m,Chi_qv)
-     write(unit,*) 2d0*pi*m/beta, Chi_qv(1,1),Chi_qv(2,2),Chi_qv(1,2)
-  end do
-  close(unit)     
-
+     qvec_work= [0d0,0d0]
+     do m=-Lb,Lb
+        call Intk_SumMats_Chi_qv(m,Chi_qv)
+        write(unit,*)2d0*pi*m/beta, Chi_qv(1,1),Chi_qv(2,2),Chi_qv(1,2)
+     end do
+     close(unit)
+  endif
 
   converged=.false. ; iter=0
   do while(.not.converged.AND.iter<maxiter)
@@ -156,16 +174,22 @@ program bhz_2d
      params_prev = params
      !
      converged = check_convergence_local(params,it_error,nsuccess,maxiter) 
-     !
+     if(master)then
+        call save_array("params.iter"//str(iter,4),params)
+        open(free_unit(unit),file="tz_dtz_all.dat",access='append')
+        write(unit,*)iter,params(2*L+1),params(2*L+2)
+        close(unit)
+     endif
      call end_loop
   end do
-  call save_array("params.restart",params)	!ok forse va salvato anche dSigma, ma only last step(?)
+  call save_array("params.restart",params)
   !
-  open(free_unit(unit),file="tz_dtzVSg.dat")
-  write(unit,*)gt,gn,params(2*L+1),params(2*L+2),params(2*L+3)
-  close(unit)
-  write(*,*) "Tz,d+,d-=",params(2*L+1),params(2*L+2),params(2*L+3)
-
+  if(master)then
+     open(free_unit(unit),file="tz_dtzVSg.dat")
+     write(unit,*)gt,gn,params(2*L+1),params(2*L+2)
+     close(unit)
+     write(*,*) "Tz, d+=",params(2*L+1),params(2*L+2)
+  endif
 
   allocate(Smats(Nspin,Nspin,Norb,Norb,L))
   allocate(Gmats(Nspin,Nspin,Norb,Norb,L))
@@ -178,16 +202,32 @@ program bhz_2d
   call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
 
 
-  open(free_unit(unit),file="chi.dat ")
-  do m=1,Lb
+  if(master)then
+     open(free_unit(unit),file="chi_q0.dat ")
      p_work   = params
-     qvec_work=[0d0,0d0]
-     call Intk_SumMats_Chi_qv(m,Chi_qv)
-     write(unit,*) 2d0*pi*m/beta, Chi_qv(1,1),Chi_qv(2,2),Chi_qv(1,2)
-  end do
-  close(unit)     
+     Chi = 0d0
+     do m=-Lb,Lb
+        qvec_work=[0d0,0d0]
+        call Intk_SumMats_Chi_qv(m,Chi_qv)
+        write(unit,*) 2d0*pi*m/beta, Chi_qv(1,1),Chi_qv(2,2),Chi_qv(1,2)
+     enddo
+     close(unit)
+     if(check_nel)then
+        do ik=1,Nktot
+           qvec_work=Kgrid(ik,:)
+           do m=-Lb,Lb
+              call Intk_SumMats_Chi_qv(m,Chi_qv)
+              Chi = Chi + Chi_qv/Nktot/beta
+           enddo
+        end do
+        write(*,*)Chi(1,1),Chi(2,2),Chi(1,2)
+     endif
+  endif
 
 
+  call finalize_MPI()
+
+  
 contains
 
 
@@ -227,7 +267,7 @@ contains
     real(8),dimension(:),intent(inout) :: p ![3+2L]
     real(8),dimension(Nparams)         :: integral,ints
     real(8)                            :: Tz,dTz
-    real(8)                            :: TzTmp,dPlus,dMinus
+    real(8)                            :: TzTmp,dPlus
     real(8),dimension(L)               :: ReSigma,ImSigma
     real(8)                            :: N_el 
     complex(8)                         :: Smats(Nspin,Nspin,Norb,Norb,L)
@@ -236,7 +276,6 @@ contains
     !
     p_work = p
     !
-    print*,"Integrating F_System:",Nktot
     select case(OrderInt)
     case default
        integral  = 0d0
@@ -252,14 +291,12 @@ contains
     ImSigma   = integral(L+1:2*L)
     Tz        = integral(2*L+1)
     dPlus     = integral(2*L+2)
-    dMinus    = integral(2*L+3)    
     !
     !Update params:
     p(1:L)     = ReSigma
     p(L+1:2*L) = ImSigma
     p(2*L+1)   = Tz
     p(2*L+2)   = dPlus
-    p(2*L+3)   = dMinus
     !
     if(check_nel)then
        call build_self_energy(p,Smats)
@@ -273,10 +310,12 @@ contains
           end do
        end do
        N_el = sum(n_k)/Nktot
-       write(*,*)N_el
-       call splot("Sigma_iw_iter"//str(iter,3)//".dat",pi/beta*(2*arange(1,L)-1),dcmplx(ReSigma(:),ImSigma(:)))
+       if(master)write(*,*)"N=",N_el
+       if(master)call splot("Sigma_iw_iter"//str(iter,3)//".dat",pi/beta*(2*arange(1,L)-1),dcmplx(ReSigma(:),ImSigma(:)))
     endif
-    write(*,*)iter,Tz,dPlus,dMinus,ReSigma(1),ImSigma(1)
+    if(master)write(*,*)"Tz             =",Tz
+    if(master)write(*,*)"D+             =",dPlus
+    if(master)write(*,*)"ReS(1), ImS(1) =",ReSigma(1),ImSigma(1)
     return
   end subroutine solve_eqs
 
@@ -291,9 +330,10 @@ contains
     integer                :: n,m,ik,iq
     real(8)                :: kx,ky
     real(8),dimension(L)   :: ReSigma,ImSigma
-    real(8)                :: ReS(L),ImS(L)
-    real(8)                :: Tz,dTz,dPlus,dMinus
-    real(8)                :: TzTmp,dTzTmp,dPlusTmp,dMinusTmp
+    real(8),dimension(L)   :: ReSTmp,ImSTmp
+    real(8),dimension(L)   :: ReS,ImS
+    real(8)                :: Tz,dTz,dPlus
+    real(8)                :: TzTmp,dTzTmp,dPlusTmp
     real(8)                :: z,simZ
     real(8)                :: Ek,simEk
     real(8)                :: Meff
@@ -308,7 +348,6 @@ contains
     ImSigma   = p_work(L+1:2*L)
     Tz        = p_work(2*L+1)
     dPlus     = p_work(2*L+2)
-    dMinus    = p_work(2*L+3)
     qvec_work = kvec            !q==k
     !
     kx   = kvec(1)
@@ -323,128 +362,203 @@ contains
     !Sum over Matsubara frequencies first:
     ReS       = 0d0
     ImS       = 0d0
+    !
+    ReSTmp    = 0d0
+    ImSTmp    = 0d0
     TzTmp     = 0d0
     dPlusTmp  = 0d0
-    dMinusTmp = 0d0
-    do n=1,L
+    do n=1+mpiId,L,mpiSize
        z      = pi/beta*(2*n-1)
        simZ   = z - ImSigma(n)  !modulo a factor xi
        Meff   = Mh - Tz*gt + ek + ReSigma(n)
        simEk  = Meff**2 + xk**2 + yk**2
-       Den    = z**2d0 + simEk
-       !
-       TzTmp  = TzTmp  + Meff/Den !Sum over n
-       ReS(n) = -simZ/Den*dMinus+ Meff/Den*dPlus
-       ImS(n) =  simZ/Den*dPlus + Meff/Den*dMinus
+       Den    = z**2    + simEk
+       TzTmp  = TzTmp  - 2d0*Meff/Den !Sum over n
+       ReSTmp(n) = -Meff/Den*dPlus
+       ImSTmp(n) = -simZ/Den*dPlus
+       if(n==1.AND.kx==0.AND.ky==0)print*,ImSTmp(n),SimZ/Den,dPlus,Meff,Mh - Tz*gt + ek,ReSTmp(n)
     enddo
+    call AllReduce_MPI(comm,ReSTmp,ReS)
+    call AllReduce_MPI(comm,ImSTmp,ImS)
+    Tz = 0d0
+    call AllReduce_MPI(comm,TzTmp,Tz)
     !
     !Int(k) Chi({q,m};k) = Int(k)Sum(n) Chi({q,m};{k,n})
-    do m=1,Lb
+    do n=0+mpiId,2*Lb,mpiSize
+       m = -Lb + n !m=-Lb,Lb       
        call Intk_SumMats_Chi_qv(m,ChiTmp)
        Den       = (ChiTmp(1,1) + gminus)**2 - ChiTmp(1,2)**2 - (ChiTmp(2,2) + gplus)**2
-       dPlusTmp  = dPlusTmp  - 2d0*(ChiTmp(1,1) + gminus)/Den - (gt-gn)/2d0  
-       dMinusTmp = dMinusTmp + 2d0*ChiTmp(1,2)/Den
+       dPlusTmp  = dPlusTmp  -2d0*(ChiTmp(1,1) + gminus)/Den - (gt-gn)/2d0  
     enddo
+    dPlus = 0d0
+    call AllReduce_MPI(comm,dPlusTmp,dPlus)
     !
-    integral(1:L)     = -ReS                !ReSigma(k)
-    integral(L+1:2*L) = -ImS                !ImSigma(k)
-    integral(2*L+1)   = -4d0*TzTmp/beta     !Tz(k)
-    integral(2*L+2)   =  2d0*dPlusTmp/beta  !d+(q)
-    integral(2*L+3)   =  2d0*dMinusTmp/beta !d-(q)
+    integral(1:L)     = ReS            !ReSigma(k)
+    integral(L+1:2*L) = ImS            !ImSigma(k)
+    integral(2*L+1)   = 2d0*Tz/beta    !Tz(k)
+    integral(2*L+2)   = dPlus/beta     !d+(q)
   end function fk_system
 
 
 
   subroutine Intk_SumMats_Chi_qv(m,chi)
-    integer              :: m
-    real(8)              :: chi(2,2)
-    real(8),dimension(2) :: kvec
-    real(8)              :: Tz,dPlus,dMinus
-    real(8),dimension(L) :: ReSigma,ImSigma
-    real(8)              :: wn,wnm
-    real(8)              :: zn,zn_plus_m
-    real(8)              :: Mk,Mk_plus_q
-    real(8)              :: ek,ek_plus_q
-    real(8)              :: xk,xk_plus_q
-    real(8)              :: yk,yk_plus_q
-    real(8)              :: SimEk,SimEk_plus_q
-    real(8)              :: Dk,Dk_plus_q
-    real(8)              :: num(2,2),den
-    real(8)              :: num_t(2,2),den_t, Mk_t, Mkq_t, Ek2, Ekq2    
-    real(8)              :: tail_num(2,2), tail_den, tail, nu       
-    integer              :: ik,n
-    real(8)              :: kx,ky,qx,qy,vkq
+    integer                 :: m
+    real(8)                 :: chi(2,2)
+    real(8),dimension(2)    :: kvec
+    real(8)                 :: Tz,dPlus
+    real(8),dimension(-L:L) :: ReSigma,ImSigma
+    real(8)                 :: wn,wn_plus_m,wn_minus_m
+    real(8)                 :: zn,zn_plus_m,zn_minus_m
+    real(8)                 :: ek0,ek0_plus_q
+    real(8)                 :: xk,xk_plus_q
+    real(8)                 :: yk,yk_plus_q
+    real(8)                 :: Ek_n, Ek_plus_q__n_plus_m, Ek_plus_q__n_minus_m
+    real(8)                 :: Mk_n, Mk_plus_q__n_plus_m, Mk_plus_q__n_minus_m
+    real(8)                 :: Dk_n, Dk_plus_q__n_plus_m, Dk_plus_q__n_minus_m
+    real(8)                 :: chi_pp_n_plus_m,chi_pp_n_minus_m,chi_pp
+    real(8)                 :: chi_mm_n_plus_m,chi_mm_n_minus_m,chi_mm
+    real(8)                 :: chi_pm_n_plus_m,chi_pm_n_minus_m,chi_pm
+    real(8)                 :: chi_pp_n_plus_m_t,chi_pp_n_minus_m_t,chi_pp_t
+    real(8)                 :: chi_mm_n_plus_m_t,chi_mm_n_minus_m_t,chi_mm_t
+    real(8)                 :: chi_pm_n_plus_m_t,chi_pm_n_minus_m_t,chi_pm_t
+    real(8)                 :: Den_n__n_plus_m,Den_n__n_minus_m
+    real(8)                 :: Mk_t, Mkq_t, Ek_t, Ekq_t
+    real(8)                 :: tail_num(2,2),tail(2,2),tail_den,  nu       
+    integer                 :: ik,n
+    real(8)                 :: kx,ky,qx,qy,vkq,Tfactor,chi_pp_t_sum,chi_mm_t_sum,chi_pm_t_sum
+
+
+
+    ReSigma(1:L) = p_work(1:L)     ; ReSigma(-L:-1)=ReSigma(1:L) ; ReSigma(0) = 0d0
+    ImSigma(1:L) = p_work(L+1:2*L) ; ImSigma(-L:-1)=-ImSigma(1:L); ImSigma(0) = 0d0    
+    Tz           = p_work(2*L+1)
+    dPlus        = p_work(2*L+2)
     !
-    ReSigma   = p_work(1:L)
-    ImSigma   = p_work(L+1:2*L)
-    Tz        = p_work(2*L+1)
-    dPlus     = p_work(2*L+2)
-    dMinus    = p_work(2*L+3)
+    tail_den     = 0d0
+    tail_num     = 0d0
+    Chi          = 0d0
+    qx           = qvec_work(1)
+    qy           = qvec_work(2)
+    nu           = 2*m*pi/beta
     !
-    Chi       = 0d0
-    qx        = qvec_work(1)
-    qy        = qvec_work(2)
-    nu        = 2*m*pi/beta
     do ik=1,Nktot
-       kvec      = Kgrid(ik,:)
-       kx        = kvec(1)
-       ky        = kvec(2)
+       kvec       = Kgrid(ik,:)
+       kx         = kvec(1)
+       ky         = kvec(2)
        !
-       ek        = -1d0*(cos(kx)+cos(ky))
-       ek_plus_q = -1d0*(cos(kx+qx)+cos(ky+qy))
-       xk        = lambda*sin(kx)
-       yk        = lambda*sin(ky)
-       xk_plus_q = lambda*sin(kx+qx)
-       yk_plus_q = lambda*sin(ky+qy)
-       vkq       = xk*xk_plus_q + yk*yk_plus_q
+       ek0        = -1d0*(cos(kx)+cos(ky))
+       ek0_plus_q = -1d0*(cos(kx+qx)+cos(ky+qy))
+       xk         = lambda*sin(kx)
+       yk         = lambda*sin(ky)
+       xk_plus_q  = lambda*sin(kx+qx)
+       yk_plus_q  = lambda*sin(ky+qy)
+       vkq        = xk*xk_plus_q + yk*yk_plus_q
        !
-       Mk_t      = Mh - Tz*gt + ek
-       Mkq_t     = Mh - Tz*gt + ek_plus_q          
+       Mk_t       = Mh - Tz*gt + ek0
+       Mkq_t      = Mh - Tz*gt + ek0_plus_q          
        !
-       Ek2       = Mk_t**2 + xk**2 + yk**2
-       Ekq2      = Mkq_t**2 + xk_plus_q**2 + yk_plus_q**2          
+       Ek_t       = Mk_t**2 + xk**2 + yk**2
+       Ekq_t      = Mkq_t**2 + xk_plus_q**2 + yk_plus_q**2          
        !
        do n=1,Lf
-          wn           = pi/beta*(2*n-1)
-          wnm          = pi/beta*(2*(n+m)-1)
+          wn                   = pi/beta*(2*n-1)
+          wn_plus_m            = pi/beta*(2*(n+m)-1)
+          wn_minus_m           = pi/beta*(2*(n-m)-1)
           !
-          zn           = wn-ImSigma(n) 			
-          zn_plus_m    = wnm-ImSigma(n+m)
+          zn                   = wn         - ImSigma(n)   !n   -->-n
+          zn_plus_m            = wn_plus_m  - ImSigma(n+m) !n+m -->-n-m
+          zn_minus_m           = wn_minus_m - ImSigma(n-m) !n-m --> m-n
           !
-          Mk           = Mh - Tz*gt + ReSigma(n) + ek
-          Mk_plus_q    = Mh - Tz*gt + ReSigma(n+m) + ek_plus_q
+          Mk_n                 = Mh - Tz*gt + ReSigma(n) + ek0
+          Mk_plus_q__n_plus_m  = Mh - Tz*gt + ReSigma(n+m) + ek0_plus_q
+          Mk_plus_q__n_minus_m = Mh - Tz*gt + ReSigma(n-m) + ek0_plus_q
           !
-          simEk        = Mk**2 + xk**2 + yk**2
-          simEk_plus_q = Mk_plus_q**2 + xk_plus_q**2 + yk_plus_q**2
+          Ek_n                 = Mk_n**2 + xk**2 + yk**2
+          Ek_plus_q__n_plus_m  = Mk_plus_q__n_plus_m**2  + xk_plus_q**2 + yk_plus_q**2
+          Ek_plus_q__n_minus_m = Mk_plus_q__n_minus_m**2 + xk_plus_q**2 + yk_plus_q**2
           !
-          Dk           = zn**2d0 + simEk
-          Dk_plus_q    = zn_plus_m**2 + simEk_plus_q
+          Dk_n                 = zn**2 + Ek_n
+          Dk_plus_q__n_plus_m  = zn_plus_m**2  + Ek_plus_q__n_plus_m
+          Dk_plus_q__n_minus_m = zn_minus_m**2 + Ek_plus_q__n_minus_m
           !
-          den          = Dk*Dk_plus_q
-          num(1,1)     = -zn*zn_plus_m + Mk*Mk_plus_q
-          num(2,2)     = vkq
-          num(1,2)     = zn*Mk_plus_q  + zn_plus_m*Mk
-          num(2,1)     = num(1,2)
+          Den_n__n_plus_m      = Dk_n*Dk_plus_q__n_plus_m
+          Den_n__n_minus_m     = Dk_n*Dk_plus_q__n_minus_m
           !
-          den_t        = (wnm**2d0 + Ekq2)*(wn**2d0 + Ek2)
-          num_t(1,1)   = -wn*wnm + Mk_t*Mkq_t
-          num_t(2,2)   =  vkq
-          num_t(1,2)   = zero
-          num_t(2,1)   = zero
           !
-          Chi(1,1)     = Chi(1,1) - 4d0*(num(1,1)/den-num_t(1,1)/den_t)/beta/Nktot
-          Chi(2,2)     = Chi(2,2) - 4d0*(num(2,2)/den-num_t(2,2)/den_t)/beta/Nktot
-          Chi(1,2)     = Chi(1,2) - 8d0*num(1,2)/den/beta/Nktot
-          Chi(2,1)     = Chi(1,2)
+          !Chi_++
+          chi_pp_n_plus_m      = (-zn*zn_plus_m  + Mk_n*Mk_plus_q__n_plus_m)/Den_n__n_plus_m
+          chi_pp_n_minus_m     = (-zn*zn_minus_m + Mk_n*Mk_plus_q__n_minus_m)/Den_n__n_minus_m
+          chi_pp               = chi_pp_n_plus_m + chi_pp_n_minus_m
+          Chi(1,1)             = Chi(1,1) - 2d0*chi_pp/beta/Nktot
+          !
+          chi_pp_n_plus_m_t    = (-wn*wn_plus_m + Mkq_t*Mk_t)/(wn**2+Ek_t)/(wn_plus_m**2+Ekq_t)
+          chi_pp_n_minus_m_t   = (-wn*wn_minus_m + Mkq_t*Mk_t)/(wn**2+Ek_t)/(wn_minus_m**2+Ekq_t)
+          chi_pp_t             = chi_pp_n_plus_m_t + chi_pp_n_minus_m_t
+          Chi(1,1)             = Chi(1,1) + 2d0*chi_pp_t/beta/Nktot
+          !
+          !
+          !Chi_--          
+          chi_mm_n_plus_m      = vkq/Den_n__n_plus_m
+          chi_mm_n_minus_m     = vkq/Den_n__n_minus_m
+          chi_mm               = chi_mm_n_plus_m + chi_mm_n_minus_m
+          Chi(2,2)             = Chi(2,2) - 2d0*chi_mm/beta/Nktot
+          !
+          chi_mm_n_plus_m_t    = vkq/(wn**2+Ek_t)/(wn_plus_m**2+Ekq_t)
+          chi_mm_n_minus_m_t   = vkq/(wn**2+Ek_t)/(wn_minus_m**2+Ekq_t)
+          chi_mm_t             = chi_mm_n_plus_m_t + chi_mm_n_minus_m_t
+          Chi(2,2)             = Chi(2,2) + 2d0*chi_mm_t/beta/Nktot
+          !
+          !
+          !Chi_+-
+          chi_pm_n_plus_m      = (zn*Mk_plus_q__n_plus_m   + zn_plus_m*Mk_n)/Den_n__n_plus_m
+          chi_pm_n_minus_m     = (zn*Mk_plus_q__n_minus_m  + zn_minus_m*Mk_n)/Den_n__n_minus_m
+          chi_pm               = chi_pm_n_plus_m - chi_pm_n_minus_m
+          Chi(1,2)             = Chi(1,2) - 4d0*chi_pm/beta/Nktot
+          !
+          ! chi_pm_n_plus_m_t    = (wn*Mkq_t + wn_plus_m*Mk_t)/(wn**2 +Ek_t)/(wn_plus_m**2   + Ekq_t)
+          ! chi_pm_n_minus_m_t   = (wn*Mkq_t + wn_minus_m*Mk_t)/(wn**2+Ek_t)/(wn_minus_m**2 + Ekq_t)
+          ! chi_pm_t             = chi_pm_n_plus_m_t - chi_pm_n_minus_m_t
+          ! Chi(1,2)             = Chi(1,2) + 4d0*chi_pm_t/beta/Nktot
+          Chi(2,1)             = Chi(1,2)
        enddo
-       tail_den      = sqrt(Ek2)*((Ekq2-Ek2)**2d0 + 2d0*(Ekq2+Ek2)*nu**2d0 + nu**4d0)
-       tail_num(1,1) = (Ek2-Ekq2)*(Ek2 + Mk_t*Mkq_t) + (Ek2 - Mk_t*Mkq_t)*nu**2d0
-       tail_num(2,2) = vkq*(Ek2 - Ekq2 - nu**2d0)
-       tail_num(1,2) = zero
-       tail_num(2,1) = zero
        !
-       !Chi = Chi + Tail
-       Chi      = Chi + 2d0*tanh(0.5d0*beta*sqrt(Ek2))*tail_num/tail_den/Nktot
+       !
+       !
+       Tfactor       = 2d0*tanh(0.5d0*beta*sqrt(Ek_t))/sqrt(Ek_t)
+       eps = abs(Ekq_t-Ek_t)
+       if(m==0)then
+          !in this case eps=0 by construction so we have a specific expression
+          tail(1,1)        =  Tfactor*((xk**2 + yk**2)/4d0/Ek_t)
+          tail(2,2)        = -Tfactor*(vkq/4d0/Ek_t)
+          tail(1,2)        = 0d0
+          tail(2,1)        = 0d0
+          !
+       elseif(m==0.AND.(qx/=0d0.OR.qy/=0))then
+          if(eps<1d-3)then
+             !in this case eps can be small, you have to handle it separately
+             tail(1,1)     = -Tfactor*(Ek_t + Mk_t*Mkq_t)*(2d0 - (Ekq_t-Ek_t))
+             tail(2,2)     = -Tfactor*vkq*(2d0 - (Ekq_t-Ek_t))
+             tail(1,2)     = 0d0
+             tail(2,1)     = 0d0
+          else
+             !if eps is not small, then use regular expression
+             tail_num(1,1) = -Tfactor*(Ek_t + Mk_t*Mkq_t)
+             tail_num(2,2) = -Tfactor*vkq
+             tail_num(1,2) = 0d0
+             tail_num(2,1) = 0d0
+             tail_den      = (Ekq_t-Ek_t)
+             tail          = tail_num/tail_den
+          endif
+       else
+          ! m and q generic
+          tail_num(1,1) = Tfactor*((Ek_t-Ekq_t)*(Ek_t + Mk_t*Mkq_t) + (Ek_t - Mk_t*Mkq_t)*nu**2d0)
+          tail_num(2,2) = Tfactor*(vkq*(Ek_t - Ekq_t - nu**2d0))
+          tail_num(1,2) = 0d0
+          tail_num(2,1) = 0d0
+          tail_den      = ((Ekq_t-Ek_t)**2d0 + 2d0*(Ekq_t+Ek_t)*nu**2d0 + nu**4d0)
+          tail          = tail_num/tail_den
+       endif
+       Chi = Chi + tail/Nktot
     enddo
   end subroutine Intk_SumMats_Chi_qv
 

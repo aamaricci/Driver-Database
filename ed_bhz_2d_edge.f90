@@ -37,7 +37,7 @@ program ed_bhz_2d_edge
   integer                                       :: Nk,Ly,Nkpath
   real(8)                                       :: e0,mh,lambda,wmixing
   character(len=30)                             :: Params
-  logical                                       :: spinsym,tridiag,lrsym,rebuild_sigma
+  logical                                       :: spinsym,tridiag,lrsym,rebuild_sigma,getBands
   character(len=60)                             :: finput
   character(len=32)                             :: hkfile
   real(8),dimension(:,:),allocatable            :: Zmats
@@ -69,6 +69,7 @@ program ed_bhz_2d_edge
   call parse_input_variable(lrsym,"LRSYM",finput,default=.true.)
   call parse_input_variable(spinsym,"SPINSYM",finput,default=.true.)
   call parse_input_variable(wmixing,"WMIXING",finput,default=0.5d0)
+  call parse_input_variable(getBands,"getBands",finput,default=.false.)
   !
   call ed_read_input(trim(finput),comm)
 
@@ -138,6 +139,27 @@ program ed_bhz_2d_edge
      ilat = ineq2ilat(ineq)
      Hloc_ineq(ineq,:,:,:,:) = Hloc(ilat,:,:,:,:)
   enddo
+
+
+  if(getBands)then
+     ! call save_array("Smats",Smats)
+     call ed_read_impSigma(Nineq)
+     call ed_get_sigma_matsubara(Smats_ineq,Nineq)
+     do ilat=1,Nlat
+        ineq = ilat2ineq(ilat)
+        Smats(ilat,:,:,:,:,:) = Smats_ineq(ineq,:,:,:,:,:)
+        S0(ilat,:,:,:,:)      = Smats_ineq(ineq,:,:,:,:,1)
+     enddo
+     do ilat=1,Nlat
+        Zfoo(ilat,:,:)        = select_block(ilat,S0)
+        do iorb=1,Nso
+           i = iorb + (ilat-1)*Nso
+           Zmats(i,i)  = 1.d0/( 1.d0 + abs( dimag(Zfoo(ilat,iorb,iorb))/(pi/beta) ))
+        enddo
+     enddo
+     call solve_hk_topological()
+     stop
+  end if
 
 
   !Setup solver
@@ -342,13 +364,15 @@ contains
 
     allocate(colors(Ly,Nso))
     colors = gray88
-    colors(1,:) = [red1,gray88,blue1,gray88,blue1,gray88,red1,gray88]
-    colors(Ly,:) =[blue1,gray88,red1,gray88,red1,gray88,blue1,gray88]
+    ! colors(1,:) = [red1,gray88,blue1,gray88,blue1,gray88,red1,gray88]
+    ! colors(Ly,:) =[blue1,gray88,red1,gray88,red1,gray88,blue1,gray88]
+    colors(1,:) = [red,red,blue,blue,blue,blue,red,red]
+    colors(Ly,:) =[blue,blue,red,red,red,red,blue,blue]
 
     call TB_solve_model(bhz_edge_model,Ly,Nso,kpath,Nkpath,&
          colors_name=colors,&
          points_name=[character(len=10) :: "-pi","0","pi"],&
-         file="Eigenbands.nint",pbc=.false.)
+         file="zHtopEigenBands",pbc=.false.)
   end subroutine solve_hk_topological
 
 

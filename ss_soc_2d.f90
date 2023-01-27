@@ -10,12 +10,11 @@ program ss_hmsoc
   integer                                 :: Nlso
   complex(8),allocatable,dimension(:,:,:) :: Hk
   complex(8),allocatable,dimension(:,:)   :: Hloc
-  real(8)                                 :: ts,Mh(3),lambda,alfa
+  real(8)                                 :: ts(3),Mh(3),lambda,alfa
   integer                                 :: Nkx,Nktot,Npts,Nkpath,ik
   real(8),dimension(:,:),allocatable      :: kpath
 
-  call parse_input_variable(ts,"TS","inputSOC.conf",default=0.5d0)
-  call parse_input_variable(alfa,"ALFA","inputSOC.conf",default=0.1d0)
+  call parse_input_variable(ts,"TS","inputSOC.conf",default=[0.5d0,0.5d0,0.5d0])
   call parse_input_variable(lambda,"LAMBDA","inputSOC.conf",default=0.d0)
   call parse_input_variable(mh,"MH","inputSOC.conf",default=[0d0,0.1d0,0.1d0])
   call parse_input_variable(Nkx,"Nkx","inputSOC.conf",default=20)
@@ -84,13 +83,13 @@ contains
     integer                   :: N
     complex(8),dimension(N,N) :: hk
     real(8)                   :: kx,ky
-    real(8)                   :: cx,cy,ek(3)
+    real(8)                   :: cx,cy,e,ek(3)
     if(N/=Nlso)stop "hk_modle error: N != Nspin*Norb == 6"
     kx = kvec(1)
     ky = kvec(2)
     cx = cos(kx)
     cy = cos(ky)
-    ek = -2*ts*[cx+cy,cx+alfa*cy,alfa*cx+cy]
+    ek = -2d0*ts*(cx+cy)
     Hk = zero
     Hk = diag([ek,ek]) + diag([Mh,Mh]) + lambda*H_ls()
   end function hk_model
@@ -119,7 +118,6 @@ contains
     real(8),dimension(:)      :: kvec
     integer                   :: N
     complex(8),dimension(N,N) :: Hk
-    !< Build H(k) from W90:
     Hk = hk_model(kvec,N)
     !< Build effective fermionic H*(k) 
     call ss_get_ssHk(Hk,Hloc)
