@@ -1,4 +1,4 @@
-program test
+program hubbard_dimer
   USE EDLAT
   USE SCIFOR
   USE DMFT_TOOLS
@@ -12,7 +12,6 @@ program test
   call parse_input_variable(eloc,"ELOC",finput,default=0d0,comment="local energies")
   call ed_read_input(trim(finput))
   !
-  call add_ctrl_var(beta,"BETA")
   call add_ctrl_var(Norb,"NORB")
   call add_ctrl_var(Nspin,"Nspin")
   call add_ctrl_var(xmu,"xmu")
@@ -20,7 +19,7 @@ program test
   call add_ctrl_var(wfin,"wfin")
   call add_ctrl_var(eps,"eps")
 
-  if(Nspin/=1.OR.Norb/=1.OR.Nsites(1)/=4)stop "This test driver is 2x2 square plaquette only"
+  if(Nspin/=1.OR.Norb/=1.OR.Nsites(1)/=2)stop "This test driver is for a nonmagnetic, single-orbital, dimer only"
 
 
   !2d square with OBC and staggered energies
@@ -28,17 +27,9 @@ program test
   !> ionic potential
   call ed_Hij_add_link(1,1,1,1,1, one*eloc)
   call ed_Hij_add_link(2,2,1,1,1,-one*eloc)
-  call ed_Hij_add_link(3,3,1,1,1, one*eloc)
-  call ed_Hij_add_link(4,4,1,1,1,-one*eloc)
   !> hoppings
   call ed_Hij_add_link(1,2,1,1,1,one*ts)
-  call ed_Hij_add_link(1,4,1,1,1,one*ts)
   call ed_Hij_add_link(2,1,1,1,1,one*ts)
-  call ed_Hij_add_link(2,3,1,1,1,one*ts)
-  call ed_Hij_add_link(3,2,1,1,1,one*ts)
-  call ed_Hij_add_link(3,4,1,1,1,one*ts)
-  call ed_Hij_add_link(4,1,1,1,1,one*ts)
-  call ed_Hij_add_link(4,3,1,1,1,one*ts)
   !
   call ed_Hij_info()
   call ed_Hij_write()
@@ -49,7 +40,7 @@ program test
 
 
 
-end program test
+end program hubbard_dimer
 
 
 

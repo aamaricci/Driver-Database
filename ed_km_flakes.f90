@@ -1,13 +1,16 @@
-program ed_kanemele
+program ed_kanemele_flakes
    USE DMFT_ED    !0.6.0
    USE SCIFOR     !4.9.6
    USE DMFT_TOOLS !2.4.3
+   USE HONEYTOOLS !0.2.1
+   USE HONEYPLOTS !0.2.1
    USE MPI
+
    implicit none
 
-   integer                                       :: iloop,Lk,Nso,Nlso,Nlat,Nineq
+   integer                                       :: iloop,Nso,Nlso,Nlat
    logical                                       :: converged
-   integer                                       :: ispin,ilat!,i,j
+   integer                                       :: ilat
    !
    !Bath:
    integer                                       :: Nb
@@ -19,23 +22,21 @@ program ed_kanemele
    complex(8),allocatable,dimension(:,:,:,:,:,:) :: Gmats,Greal
    !
    !Hamiltonian input:
-   complex(8),allocatable,dimension(:,:,:)       :: Hk
-   complex(8),allocatable,dimension(:,:)         :: kmHloc
+   complex(8),allocatable,dimension(:,:,:)       :: Hij
+   complex(8),allocatable,dimension(:,:)         :: kmHij
    complex(8),allocatable,dimension(:,:,:,:,:)   :: Hloc
+   complex(8),allocatable,dimension(:,:)         :: Hloc_lso
    !
-   integer,allocatable,dimension(:)              :: ik2ix,ik2iy
    real(8),dimension(2)                          :: e1,e2   !real-space lattice basis
-   real(8),dimension(2)                          :: bk1,bk2 !reciprocal space lattice basis
    real(8),dimension(2)                          :: d1,d2,d3
    real(8),dimension(2)                          :: a1,a2,a3
-   real(8),dimension(2)                          :: bklen
    !
    !Variables for the model:
-   integer                                       :: Nk,Nkpath
+   integer,parameter                             :: Lk=1 ! just one k-point
+   integer                                       :: radius
    real(8)                                       :: t1,t2,nphi,phi,Mh,Bz,wmixing
    character(len=32)                             :: finput
-   character(len=32)                             :: hkfile
-   real(8),allocatable,dimension(:)              :: dens
+   character(len=32)                             :: HijFILE
    !
    !Flags and options
    character(len=32)                             :: bathspins
@@ -59,15 +60,13 @@ program ed_kanemele
    master = get_Master_MPI(comm)
 
 
-   !Parse additional variables && read Input && read H(k)^2x2
+   !Parse additional variables && read Input
    call parse_cmd_variable(finput,"FINPUT",default='inputKANEMELE.conf')
    !
-   call parse_input_variable(hkfile,"HKFILE",finput,default="hkfile.in",&
+   call parse_input_variable(HijFILE,"HijFILE",finput,default="Hij.in",&
       comment='Hk will be written here')
-   call parse_input_variable(nk,"NK",finput,default=100,&
-      comment='Number of kpoints per direction')
-   call parse_input_variable(nkpath,"NKPATH",finput,default=500,&
-      comment='Number of kpoints per interval on kpath. Relevant only if GETBANDS=T.')
+   call parse_input_variable(radius,"RADIUS",finput,default=1,&
+      comment='Integer radius of the flake, in hexagonal units')
    call parse_input_variable(t1,"T1",finput,default=1d0,&
       comment='NN hopping, fixes noninteracting bandwidth')
    call parse_input_variable(t2,"T2",finput,default=0.1d0,&
@@ -77,7 +76,7 @@ program ed_kanemele
    call parse_input_variable(mh,"MH",finput,default=0d0,&
       comment='On-site staggering, aka Semenoff-Mass term')
    call parse_input_variable(Bz,"Bz",Finput,default=0d0,&
-      comment='External AFMz Zeeman field: Hk = Hk - Bz * tau_z ⊗ sigma_z')
+      comment='External AFMz Zeeman field: Hij = Hij - Bz * tau_z ⊗ sigma_z')
    call parse_input_variable(wmixing,"WMIXING",finput,default=0.75d0,&
       comment='Mixing parameter: 0 means 100% of the old bath (no update at all), 1 means 100% of the new bath (pure update)')
    call parse_input_variable(bathspins,"BathSpins",finput,default="x",&
@@ -114,10 +113,8 @@ program ed_kanemele
       stop "Wrong setup from input file: AFM(y) sb-field is not allowed with a x-only bath"
    if(Norb/=1.OR.Nspin/=2)&
       stop "Wrong setup from input file: Norb=1 AND Nspin=2 is the correct configuration."
-   Nlat=2
-   Nso=Nspin*Norb
-   Nlso=Nlat*Nso                 !4 = 2(ineq sites)*2(spin)*1(orb)
-
+   !
+   Nso=Nspin*Norb ! >> Nlat undefined until nanoflake is built <<
 
    !SETUP THE HONEYCOMB LATTICE
    !
@@ -137,16 +134,13 @@ program ed_kanemele
    a2 = d2-d3                    !3/2*a[1,-1/sqrt3]
    a3 = d1-d2                    !sqrt3[0,1]
 
-   !RECIPROCAL LATTICE VECTORS
-   bklen=2d0*pi/3d0
-   bk1=bklen*[ 1d0, sqrt(3d0)]
-   bk2=bklen*[ 1d0,-sqrt(3d0)]
-   call TB_set_bk(bkx=bk1,bky=bk2)
-
-   !BUILD THE RECIPROCAL SPACE HAMILTONIAN
-   call build_hk(trim(hkfile),getbands)
-   allocate(Hloc(Nlat,Nspin,Nspin,Norb,Norb));Hloc=zero
-   Hloc = lso2nnn_reshape(kmHloc,Nlat,Nspin,Norb)
+   !BUILD THE REAL SPACE HAMILTONIAN
+   call build_Hij(trim(HijFILE)) ! {Hij} -> defines Nlat
+   allocate(Hloc(Nlat,Nspin,Nspin,Norb,Norb))
+   Hloc = lso2nnn_reshape(kmHij,Nlat,Nspin,Norb)
+   ! Note that kmHij is not diagonal in Nlat
+   Hloc_lso = nnn2lso_reshape(Hloc,Nlat,Nspin,Norb)
+   if(master)call TB_write_Hloc(Hloc_lso,'Hloc.txt')
 
    !ALLOCATE LOCAL FIELDS
    allocate(Weiss(Nlat,Nspin,Nspin,Norb,Norb,Lmats));Weiss=zero
@@ -273,7 +267,7 @@ program ed_kanemele
       endif
       !
       !COMPUTE THE LOCAL GF
-      call dmft_gloc_matsubara(Hk,Gmats,Smats)
+      call dmft_gloc_matsubara(Hij,Gmats,Smats)
       call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=4)
       !
       !COMPUTE THE WEISS FIELD (only the Nineq ones)
@@ -295,11 +289,11 @@ program ed_kanemele
    enddo
 
    !Extract and print retarded self-energy and Green's function
-   call dmft_gloc_realaxis(Hk,Greal,Sreal)
+   call dmft_gloc_realaxis(Hij,Greal,Sreal)
    call dmft_print_gf_realaxis(Greal,"Greal",iprint=4)
 
    !Compute Kinetic Energy
-   call dmft_kinetic_energy(Hk,Smats)
+   call dmft_kinetic_energy(Hij,Smats)
 
    if(master) then
       write(*,*) "!***************************!"
@@ -315,100 +309,166 @@ program ed_kanemele
 contains
 
 
+   !---------------------------------------------------------------------
+   !PURPOSE: Get real-space Kane Mele Model Hamiltonian
+   !---------------------------------------------------------------------
+   subroutine build_Hij(filename)
+      character(len=*),optional     :: filename
+      !
+      if(master)write(LOGfile,*)"Build H(ij) for a Kane-Mele flake"
+      if(master)write(LOGfile,*)"# of SO-bands:",Nso
+      !
+      !Get Hlso (automatic allocation)
+      kmHij = Hij_kanemele_flake(radius)
+      !
+      if(allocated(Hij))deallocate(Hij)
+      allocate(Hij(Nlso,Nlso,Lk))
+      Hij(:,:,Lk) = kmHij
+      !
+      call TB_write_Hloc(kmHij,filename)
+      !
+   end subroutine build_Hij
 
-   !---------------------------------------------------------------------
-   !PURPOSE: Get Kane Mele Model Hamiltonian
-   !---------------------------------------------------------------------
-   subroutine build_hk(file,getbands)
-      character(len=*),optional          :: file
-      integer                            :: i,j,ik
-      integer                            :: ix,iy
-      real(8)                            :: kx,ky
-      real(8),dimension(2)               :: pointK,pointKp
-      integer                            :: iorb,jorb
-      integer                            :: isporb,jsporb
-      integer                            :: ispin,jspin
-      integer                            :: unit
-      real(8),dimension(:,:),allocatable :: KPath
-      logical                            :: getbands
+
+   !--------------------------------------------------------------------!
+   ! > Kane-Mele HAMILTONIAN in real-space, through HoneyTools library
+   !--------------------------------------------------------------------!
+   function Hij_kanemele_flake(radius) result(Hlso)
+      integer,intent(in)               :: radius
+      complex(8),allocatable           :: Hup(:,:)  ![Nlat,Nlat]
+      complex(8),allocatable           :: Hdw(:,:)  ![Nlat,Nlat]
+      complex(8),allocatable           :: Hlso(:,:) ![Nlso,Nlso]
+      complex(8),allocatable           :: Hnnnn(:,:,:,:,:,:)
+      complex(8),allocatable           :: UPstates(:,:)
+      real(8),allocatable              :: UPlevels(:)
+      complex(8),allocatable           :: DWstates(:,:)
+      real(8),allocatable              :: DWlevels(:)
+      character(32)                    :: fig_name
+      type(unit_cell)                  :: km_basis
+      type(xy_lattice)                 :: km_flake
+      type(xy_lattice)                 :: subflake
+      type(xy_site)                    :: site
+      integer,allocatable              :: indices(:)
+      logical,allocatable              :: t1_mask(:,:)
+      logical,allocatable              :: t2_mask(:,:)
+      integer                          :: unit
+      integer                          :: i,j,k,l
       !
-      Lk= Nk*Nk
-      write(LOGfile,*)"Build H(k) Kane-Mele:",Lk
-      write(LOGfile,*)"# of SO-bands     :",Nlso
+      km_basis = unit_cell(hex_orientation(e1,e2,angle=0))
+      km_flake = get_flake(radius,layout=km_basis)
+      call xy_next_nearest_neighbors(lattice=km_flake,nn_mask=t1_mask,nnn_mask=t2_mask)
       !
-      if(allocated(Hk))deallocate(Hk)
+      !Determine Nlat and Nlso
+      Nlat = km_flake%size
+      Nlso = Nlat*Nso
+      if(master)write(LOGfile,*)"# of sites:",Nlat
       !
-      allocate(Hk(Nlso,Nlso,Lk));Hk=zero
+      !Build spin hamiltonians ([Nlat,Nlat])
+      allocate(Hup(Nlat,Nlat),Hdw(Nlat,Nlat))
+      Hup = zero
+      Hdw = zero
+      !HOPPING AMPLITUDES: EASY!
+      where(t1_mask)
+         Hup = -t1
+         Hdw = -t1
+      end where
+      !SUBLATTICE TERMS: EASY!
+      subflake = get_sublattice(km_flake,"A")
+      indices = subflake%site%key
+      do i = 1,size(indices)
+         Hup(indices(i),indices(i)) = + Mh - Bz
+         Hdw(indices(i),indices(i)) = + Mh + Bz
+      enddo
+      subflake = get_sublattice(km_flake,"B")
+      indices = subflake%site%key
+      do i = 1,size(indices)
+         Hup(indices(i),indices(i)) = - Mh + Bz
+         Hdw(indices(i),indices(i)) = - Mh - Bz
+      enddo
+      !NOW THE PAINFUL SOC PHASES <'TT_TT'>
+      phi = nphi * pi
+      l = 0 !counter
+      do i = 1,km_flake%size
+         do j = i+1,km_flake%size
+            do k = 1,6
+               site = km_flake%site(i)
+               site = xy_nnn_hop(km_basis,site,k)
+               if(site==km_flake%site(j))then
+                  if(mod(k,2)==1)then
+                     if(km_flake%site(i)%label=="A")then
+                        Hup(i,j) = +t2 * exp(+xi*phi)
+                        Hdw(i,j) = -t2 * exp(+xi*phi)
+                     else
+                        Hup(i,j) = +t2 * exp(-xi*phi)
+                        Hdw(i,j) = -t2 * exp(-xi*phi)
+                     endif
+                  else
+                     if(km_flake%site(i)%label=="A")then
+                        Hup(i,j) = +t2 * exp(-xi*phi)
+                        Hdw(i,j) = -t2 * exp(-xi*phi)
+                     else
+                        Hup(i,j) = +t2 * exp(+xi*phi)
+                        Hdw(i,j) = -t2 * exp(+xi*phi)
+                     endif
+                  endif
+                  l = l + 2
+                  Hup(j,i) = conjg(Hup(i,j))
+                  Hdw(j,i) = conjg(Hdw(i,j))
+               endif
+            enddo
+         enddo
+      enddo
+      if(l/=count(t2_mask)) error stop "WRONG NN COUNT"
       !
-      !
-      call TB_build_model(Hk,hk_kanemele_model,Nlso,[Nk,Nk],wdos=.false.)
-      !
-      !
-      allocate(kmHloc(Nlso,Nlso))
-      kmHloc = sum(Hk(:,:,:),dim=3)/Lk
-      where(abs(dreal(kmHloc))<1.d-4)kmHloc=0d0
-      if(master)call TB_write_Hloc(kmHloc)
-      if(master)call TB_write_Hloc(kmHloc,'Hloc.txt')
-      !
+      !Print to file Hup and Hdw
+      call TB_write_Hloc(Hup,"Hup.txt")
+      call TB_write_Hloc(Hdw,"Hdw.txt")
       !
       if(getbands)then
-         pointK = [2*pi/3, 2*pi/3/sqrt(3d0)]
-         pointKp= [2*pi/3,-2*pi/3/sqrt(3d0)]
          if(master)write(*,*) "***************************************"
          if(master)write(*,*) "*                                     *"
          if(master)write(*,*) "*  !Solving noninteracting TB model!  *"
          if(master)write(*,*) "*                                     *"
          if(master)write(*,*) "***************************************"
-         if(master)then
-            allocate(Kpath(4,2))
-            KPath(1,:)=[0,0]
-            KPath(2,:)=pointK
-            Kpath(3,:)=pointKp
-            KPath(4,:)=[0d0,0d0]
-            call TB_Solve_model(hk_kanemele_model,Nlso,KPath,Nkpath,&
-               colors_name=[red,blue,tomato,aquamarine],& !\psi=[A_up,A_dw,B_up,B_dw]
-               points_name=[character(len=10) :: "{/Symbol G}","K","K`","{/Symbol G}"],&
-               file="EigenbandsKMH.nint",iproject=.false.)
-         endif
+         UPstates = Hup
+         DWstates = Hdw
+         allocate(UPlevels(Nlat))
+         allocate(DWlevels(Nlat))
+         call eigh(UPstates,UPlevels,jobz='V',uplo='U')
+         call eigh(DWstates,DWlevels,jobz='V',uplo='U')
+         call TB_write_Hloc(UPstates,'km_up_states.txt')
+         call TB_write_Hloc(DWstates,'km_dw_states.txt')
+         if(master)call save_array("km_up_levels.txt",UPlevels)
+         if(master)call save_array("km_dw_levels.txt",DWlevels)
       endif
       !
-   end subroutine build_hk
-
-
-
-   !--------------------------------------------------------------------!
-   !Kane-Mele HAMILTONIAN
-   !--------------------------------------------------------------------!
-   function hk_kanemele_model(kpoint,Nlso) result(hk)
-      real(8),dimension(:)            :: kpoint
-      integer                         :: Nlso
-      complex(8),dimension(2,2)       :: HkUP,HkDW
-      complex(8),dimension(Nlso,Nlso) :: Hk
-      real(8)                         :: h0,hx,hy,hz
-      real(8)                         :: kdote1, kdote2
+      !FILL IN THE STANDARD QCMPLAB HIGHER-RANK FORMAT
+      allocate(Hnnnn(Nlat,Nlat,Nspin,Nspin,Norb,Norb))
+      Hnnnn = zero
+      do i = 1,Nlat
+         Hnnnn(i,i,1,1,1,1) = Hup(i,i)
+         Hnnnn(i,i,2,2,1,1) = Hdw(i,i)
+         do j = 1,Nlat
+            Hnnnn(i,j,1,1,1,1) = Hup(i,j)
+            Hnnnn(j,i,1,1,1,1) = Hup(j,i)
+            Hnnnn(i,j,2,2,1,1) = Hdw(i,j)
+            Hnnnn(j,i,2,2,1,1) = Hdw(j,i)
+         enddo
+      enddo
       !
-      phi = nphi * pi
+      !RESHAPE TO NLSO FORMAT...
+      Hlso = nnnn2lso_reshape(Hnnnn,Nlat,Nspin,Norb)
       !
-      kdote1 = dot_product(kpoint,e1)
-      kdote2 = dot_product(kpoint,e2)
+      !Plotting calls and lattice I/O
+      call plot(km_flake,backend='gnuplot',set_terminal='dumb')
+      fig_name = trim('flake'//str(radius)//'.svg')
+      call plot(km_flake,t1_mask,figure_name=fig_name)
+      unit = free_unit()
+      open(unit,file="flake.txt",action="write",position="rewind")
+      call xy_print(km_flake,unit,quiet=.true.)
+      close(unit)
       !
-      h0 = 2*t2*cos(phi)*( cos(kdote1) + cos(kdote2) + cos(kdote1-kdote2) )
-      hx = t1*( cos(kdote1) + cos(kdote2) + 1)
-      hy = t1*( sin(kdote1) + sin(kdote2) )
-      hz = 2*t2*sin(phi)*( sin(kdote1) - sin(kdote2) - sin(kdote1-kdote2) )
-      !
-      HkUP = h0*pauli_0 + hx*pauli_x + hy*pauli_y + hz*pauli_z + Mh*pauli_z
-      HkDW = h0*pauli_0 + hx*pauli_x + hy*pauli_y - hz*pauli_z + Mh*pauli_z
-      !
-      Hk = zero
-      !
-      Hk(1:3:2,1:3:2) = HkUP !Recall that the spinors are written in the
-      Hk(2:4:2,2:4:2) = HkDW !\psi=[A_up,A_dw,B_up,B_dw] convention.
-      !
-      !EXTERNAL ANTIFERROMAGNETIC ZEEMAN FIELD (z-axis)
-      Hk = Hk - Bz * kron_pauli(pauli_z,pauli_z)
-      !
-   end function hk_kanemele_model
+   end function Hij_kanemele_flake
 
 
 
@@ -417,6 +477,58 @@ contains
    !--------------------------------------------------------------------!
    !Reshaping functions:                                                !
    !--------------------------------------------------------------------!
+
+   function nnnn2lso_reshape(Fin,Nlat,Nspin,Norb) result(Fout)
+      !! 🚨 THIS VERSION IS NOT DIAGONAL IN NLAT 🚨 !!
+      integer                                               :: Nlat,Nspin,Norb
+      complex(8),dimension(Nlat,Nlat,Nspin,Nspin,Norb,Norb) :: Fin
+      complex(8),dimension(Nlat*Nspin*Norb,Nlat*Nspin*Norb) :: Fout
+      integer                                               :: iorb,ispin,ilat,is
+      integer                                               :: jorb,jspin,jlat,js
+      Fout=zero
+      do ilat=1,Nlat
+         do jlat=1,Nlat
+            do ispin=1,Nspin
+               do jspin=1,Nspin
+                  do iorb=1,Norb
+                     do jorb=1,Norb
+                        !lattice-spin-orbit stride
+                        is = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin
+                        js = jorb + (jspin-1)*Norb + (jlat-1)*Norb*Nspin
+                        Fout(is,js) = Fin(ilat,jlat,ispin,jspin,iorb,jorb)
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   end function nnnn2lso_reshape
+
+   function lso2nnnn_reshape(Fin,Nlat,Nspin,Norb) result(Fout)
+      !! 🚨 THIS VERSION IS NOT DIAGONAL IN NLAT 🚨 !!
+      integer                                               :: Nlat,Nspin,Norb
+      complex(8),dimension(Nlat*Nspin*Norb,Nlat*Nspin*Norb) :: Fin
+      complex(8),dimension(Nlat,Nlat,Nspin,Nspin,Norb,Norb) :: Fout
+      integer                                               :: iorb,ispin,ilat,is
+      integer                                               :: jorb,jspin,jlat,js
+      Fout=zero
+      do ilat=1,Nlat
+         do jlat=1,Nlat
+            do ispin=1,Nspin
+               do jspin=1,Nspin
+                  do iorb=1,Norb
+                     do jorb=1,Norb
+                        !lattice-spin-orbit stride
+                        is = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin
+                        js = jorb + (jspin-1)*Norb + (jlat-1)*Norb*Nspin
+                        Fout(ilat,jlat,ispin,jspin,iorb,jorb) = Fin(is,js)
+                     enddo
+                  enddo
+               enddo
+            enddo
+         enddo
+      enddo
+   end function lso2nnnn_reshape
 
    function nnn2lso_reshape(Fin,Nlat,Nspin,Norb) result(Fout)
       integer                                               :: Nlat,Nspin,Norb
@@ -430,8 +542,9 @@ contains
             do jspin=1,Nspin
                do iorb=1,Norb
                   do jorb=1,Norb
-                     is = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin !lattice-spin-orbit stride
-                     js = jorb + (jspin-1)*Norb + (ilat-1)*Norb*Nspin !lattice-spin-orbit stride
+                     !lattice-spin-orbit stride
+                     is = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin
+                     js = jorb + (jspin-1)*Norb + (ilat-1)*Norb*Nspin
                      Fout(is,js) = Fin(ilat,ispin,jspin,iorb,jorb)
                   enddo
                enddo
@@ -452,8 +565,9 @@ contains
             do jspin=1,Nspin
                do iorb=1,Norb
                   do jorb=1,Norb
-                     is = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin !lattice-spin-orbit stride
-                     js = jorb + (jspin-1)*Norb + (ilat-1)*Norb*Nspin !lattice-spin-orbit stride
+                     !lattice-spin-orbit stride
+                     is = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin
+                     js = jorb + (jspin-1)*Norb + (ilat-1)*Norb*Nspin
                      Fout(ilat,ispin,jspin,iorb,jorb) = Fin(is,js)
                   enddo
                enddo
@@ -466,7 +580,7 @@ contains
       integer                                               :: Nspin,Norb
       complex(8),dimension(Nspin*Norb,Nspin*Norb)           :: Fin
       complex(8),dimension(Nspin,Nspin,Norb,Norb)           :: Fout
-      integer                                               :: iorb,ispin,ilat,is
+      integer                                               :: iorb,ispin,is
       integer                                               :: jorb,jspin,js
       Fout=zero
       do ispin=1,Nspin
@@ -486,7 +600,7 @@ contains
       integer                                               :: Nspin,Norb
       complex(8),dimension(Nspin,Nspin,Norb,Norb)           :: Fin
       complex(8),dimension(Nspin*Norb,Nspin*Norb)           :: Fout
-      integer                                               :: iorb,ispin,ilat,is
+      integer                                               :: iorb,ispin,is
       integer                                               :: jorb,jspin,js
       Fout=zero
       do ispin=1,Nspin
@@ -530,6 +644,4 @@ contains
       !
    end subroutine build_replica_band
 
-
-
-end program ed_kanemele
+end program ed_kanemele_flakes
