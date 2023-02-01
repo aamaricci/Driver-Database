@@ -37,7 +37,7 @@ program ed_bhz
   complex(8),dimension(:,:,:,:,:),allocatable :: Hsym_basis
   !MPI Vars:
   integer                                     :: irank,comm,rank,ierr
-  logical                                     :: master,getbands,getakw,getXem
+  logical                                     :: master,getbands,getakw,getXem,getPave
 
   call init_MPI()
   comm = MPI_COMM_WORLD
@@ -60,12 +60,13 @@ program ed_bhz
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.d0)
   call parse_input_variable(usez,"USEZ",finput,default=.false.)
   call parse_input_variable(getXem,"GETXEM",finput,default=.false.)
+  call parse_input_variable(getPave,"getPave",finput,default=.false.)
   call parse_input_variable(getbands,"GETBANDS",finput,default=.false.)
   call parse_input_variable(getakw,"GETAKW",finput,default=.false.)
   call parse_input_variable(Lakw,"LAKW",finput,default=250)
   call parse_input_variable(akrange,"AKRANGE",finput,default=5d0)
   !
-  call ed_read_input(trim(finput),comm)
+  call ed_read_input(trim(finput))
   !
   !Add DMFT CTRL Variables:
   call add_ctrl_var(Norb,"norb")
@@ -111,11 +112,20 @@ program ed_bhz
 
 
 
+  if(getPave)then
+     call get_Pave()
+     call finalize_MPI()
+     stop
+  endif
+
+
+
   if(getXem)then
      call get_Xem(Lakw)
      call finalize_MPI()
      stop
   endif
+
 
 
 
@@ -212,14 +222,16 @@ program ed_bhz
         Hsym_basis(:,:,:,:,7)=j2so(GammaRx) ;lambdasym_vector(7)=-sb_field
      end select
      call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
-     Nb=ed_get_bath_dimension(Hsym_basis)
+     Nb=ed_get_bath_dimension()!(Hsym_basis)
   else     
      Nb=ed_get_bath_dimension()
   endif
 
+  call ed_set_hloc(j2so(bhzHloc))
+  
   allocate(Bath(Nb))
   allocate(Bath_(Nb))
-  call ed_init_solver(comm,bath)
+  call ed_init_solver(bath)
 
 
   !DMFT loop
@@ -229,20 +241,23 @@ program ed_bhz
      call start_loop(iloop,nloop,"DMFT-loop")
 
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-     call ed_solve(comm,bath,Hloc=j2so(bhzHloc))
-     call ed_get_sigma_matsubara(Smats)
-     call ed_get_sigma_realaxis(Sreal)
+     call ed_solve(bath)
+     call ed_get_sigma(Smats,axis='mats')
+     call ed_get_sigma(Sreal,axis='real')
      call ed_get_dens(dens)
-
 
      !Get GLOC:
      call dmft_gloc_matsubara(Hk,Gmats,Smats)
-     call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=print_mode)
+     call dmft_write_gf(Gmats,"Gloc",axis='mats',iprint=print_mode)
 
 
      !Update WeissField:
-     call dmft_self_consistency(Gmats,Smats,Weiss,j2so(bhzHloc),cg_scheme)
-     call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=print_mode)
+     if(cg_scheme=='delta')then        
+        call dmft_self_consistency(Gmats,Smats,Weiss,j2so(bhzHloc))
+     else
+        call dmft_self_consistency(Gmats,Smats,Weiss)
+     endif
+     call dmft_write_gf(Weiss,"Weiss",axis='mats',iprint=print_mode)
 
 
      if(mixG0)then
@@ -255,14 +270,14 @@ program ed_bhz
      case default
         stop "ed_mode!=Normal/Nonsu2"
      case("normal")
-        call ed_chi2_fitgf(comm,Weiss,bath,ispin=1)
+        call ed_chi2_fitgf(Weiss,bath,ispin=1)
         if(.not.spinsym)then
-           call ed_chi2_fitgf(comm,Weiss,bath,ispin=2)
+           call ed_chi2_fitgf(Weiss,bath,ispin=2)
         else
            call ed_spin_symmetrize_bath(bath,save=.true.)
         endif
      case("nonsu2")
-        call ed_chi2_fitgf(comm,Weiss,bath)
+        call ed_chi2_fitgf(Weiss,bath)
      end select
 
      if(.not.mixG0)then
@@ -287,7 +302,7 @@ program ed_bhz
 
 
   call dmft_gloc_realaxis(Hk,Greal,Sreal)
-  call dmft_print_gf_realaxis(Greal,"Gloc",iprint=print_mode)
+  call dmft_write_gf(Greal,"Gloc",axis='real',iprint=print_mode)
 
   call dmft_kinetic_energy(Hk,Smats)
 
@@ -468,7 +483,7 @@ contains
     call TB_build_model(Hk,hk_bhz,Nso,kpath,Nkpath)
     !
     !
-    
+
     allocate(Sreal_(Nspin,Nspin,Norb,Norb,Lw));Sreal_=zero
     do ispin=1,Nspin
        do jspin=1,Nspin
@@ -479,7 +494,7 @@ contains
           enddo
        enddo
     enddo
-    call dmft_print_gf_realaxis(Sreal_,"Sreal_",iprint=print_mode)
+    call dmft_write_gf(Sreal_,"Sreal_",axis='real',iprint=print_mode)
     !
     allocate(Gkreal(Lk,Nspin,Nspin,Norb,Norb,Lw));Gkreal=zero        
     call start_timer
@@ -551,15 +566,6 @@ contains
     allocate(Qgrid(Lkpath,2) )
     call TB_build_kgrid(kpath,Nkpath,Qgrid)
 
-    ! Gmats=zero
-    ! do i=1,Lmats
-    !    do ik=1,Lk       
-    !       Gmats(:,:,:,:,i) = Gmats(:,:,:,:,i) + j2so( get_simplified_gf(Kgrid(ik,:),i,Nso) )
-    !    enddo
-    ! enddo
-    ! Gmats=Gmats/Lk
-    ! call dmft_print_gf_matsubara(Gmats,"locG",iprint=print_mode)
-
     call start_timer()
     do iq=1,Lkpath;iv=1
        qvec = Qgrid(iq,:)
@@ -583,6 +589,74 @@ contains
     enddo
     call stop_timer()
   end subroutine get_Xem
+
+
+
+
+
+
+
+
+  !---------------------------------------------------------------------
+  !PURPOSE: GET <P>=\sum_{k} \sum_{a b} p_{a b}(k) <\cc_{k a} \ca_{k b}>
+  !---------------------------------------------------------------------
+  subroutine get_Pave()
+    complex(8),dimension(Nspin,Nspin,Norb,Norb,Lmats) :: Gkmats
+    complex(8),dimension(Nso,Nso,Lmats)               :: Gk
+    real(8),dimension(:,:),allocatable                :: Kgrid
+    complex(8)                                        :: P
+    integer                                           :: i,ik,io,jo
+    real(8),dimension(2)                              :: kvec
+    complex(8),dimension(Nso,Nso)                     :: pk,rhok,nkk
+    real(8),dimension(Nso) :: N
+
+    call set_SigmaBHZ()
+    !
+    if(master)print*,"Build <P> using Sigma(iw)"
+    !
+    !
+
+    call read_sigma(Smats)
+    call build_hk()
+    Lk = Nk**2
+    allocate(Kgrid(Lk,2))
+    call TB_build_kgrid([Nk,Nk],Kgrid)
+
+    pk = zero
+    nkk= zero
+    do ik=1,Lk
+       kvec = Kgrid(ik,:)
+       call dmft_gk_matsubara(Hk(:,:,ik),Gkmats,Smats)
+       Gk = so2j_l(Gkmats)
+       !
+       do io=1,Nso
+          do jo=1,Nso
+             rhok(io,jo) = fft_get_density(Gk(io,jo,:),beta)
+          enddo
+       enddo
+       pk = pk + hk_dkx_bhz(kvec,Nso)*rhok/Lk
+       nkk= nkk+ rhok/Lk
+    enddo
+    p = sum(pk)
+    n = diagonal(nkk)*2.d0
+    print*,p
+    print*,n
+    print*,dreal(pk(1,Nso))
+    open(519,file="pave.dat")
+    write(519,*)dreal(p),dimag(p)
+    write(519,*)n
+    write(519,*)dreal(pk(1,Nso))
+    do io=1,Nso
+       write(519,*)(pk(io,jo),jo=1,Nso)
+    enddo
+  end subroutine get_Pave
+
+
+
+
+
+
+
 
 
   !--------------------------------------------------------------------!
@@ -633,6 +707,7 @@ contains
     Gk = xi*w_*eye(Nso) + M_*Gamma5 + x_*Gamma1  + y*Gamma2 + Dx*GammaEx
     Gk = Gk/(-w_**2-Ek)
   end function get_simplified_gf
+
 
 
 
@@ -722,4 +797,44 @@ contains
   end function j2so
 
 
-end program ed_bhz
+
+
+  function so2j_l(fg) result(g)
+    complex(8),dimension(Nspin,Nspin,Norb,Norb,Lmats) :: fg
+    complex(8),dimension(Nspin*Norb,Nspin*Norb,Lmats) :: g
+    integer                                     :: iw,i,j,iorb,jorb,ispin,jspin
+    do ispin=1,Nspin
+       do jspin=1,Nspin
+          do iorb=1,Norb
+             do jorb=1,Norb
+                i=so2j_index(ispin,iorb)
+                j=so2j_index(jspin,jorb)
+                do iw=1,Lmats
+                   g(i,j,iw) = fg(ispin,jspin,iorb,jorb,iw)
+                enddo
+             enddo
+          enddo
+       enddo
+    enddo
+  end function so2j_l
+
+  function j2so_l(fg) result(g)
+    complex(8),dimension(Nspin*Norb,Nspin*Norb,Lmats) :: fg
+    complex(8),dimension(Nspin,Nspin,Norb,Norb,Lmats) :: g
+    integer                                     :: w,i,j,iorb,jorb,ispin,jspin
+    do ispin=1,Nspin
+       do jspin=1,Nspin
+          do iorb=1,Norb
+             do jorb=1,Norb
+                i=so2j_index(ispin,iorb)
+                j=so2j_index(jspin,jorb)
+                do w=1,Lmats
+                   g(ispin,jspin,iorb,jorb,w)  = fg(i,j,w)
+                enddo
+             enddo
+          enddo
+       enddo
+    enddo
+  end function j2so_l
+
+end program

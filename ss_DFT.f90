@@ -159,7 +159,7 @@ program ss_DFT
 
   !Setup Wannier90 or read H(k) from file:
   call start_timer
-  call TB_w90_setup(reg(w90file),nlat=Nlat,norb=Norb,nspin=Nspin,Spinor=spinor,verbose=.true.)
+  call TB_w90_setup(reg(w90file),nlat=[Nlat],norb=[Norb],nspin=Nspin,Spinor=spinor,verbose=.true.)
   call stop_timer("TB_w90_setup")
   if(bool_hk)then
      call TB_read_hk(Hk,reg(hkfile),Nlat,Nspin,Norb,Nkvec,kgrid)
@@ -179,6 +179,7 @@ program ss_DFT
      call stop_timer("TB_build_model")
   endif
 
+  
 
   write(*,*)"Using Nk_total="//str(size(Hk,3))
   allocate(Hloc(Nlso,Nlso))

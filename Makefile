@@ -6,7 +6,8 @@
 #EXE=bhz_2d_mf_fluct
 #EXE=ed_bilayer_hc
 #EXE=ed_bilayer_square
-EXE=ss_hm_2d
+#EXE=ss_DFT
+EXE=ed_Ca2MnO3
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
@@ -40,16 +41,17 @@ GLOB_LIB+=$(shell pkg-config --libs   dmft_tools scifor)
 
 
 ifeq ($(PLAT),intel)
-FFLAG=-O2 -ftz
-OFLAG=-O3 -ftz
-DFLAG=-p -O0 -g -fpe0 -warn -warn errors -debug extended -traceback -check all,noarg_temp_created
+FFLAG=-O3 -ftz	
+DFLAG=-p -O0 -g
+AFLAG=-p -O0 -g -fpe0 -warn -warn errors -debug extended -traceback -check all,noarg_temp_created
 FPPSERIAL =-fpp -D_
 FPPMPI =-fpp -D_	
 endif
+
 ifeq ($(PLAT),gnu)
-FFLAG = -O2 -ffree-line-length-none
-DFLAG = -O2 -p -g -fimplicit-none -Wsurprising -Wall -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
-OFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
+FFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
+DFLAG = -O0 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
+AFLAG = -O0 -p -g  -fbacktrace -fwhole-file -fcheck=all -fbounds-check -fsanitize=address -fdebug-aux-vars -Wall -Waliasing -Wsurprising -Wampersand -Warray-bounds -Wc-binding-type -Wcharacter-truncation -Wconversion -Wdo-subscript -Wfunction-elimination -Wimplicit-interface -Wimplicit-procedure -Wintrinsic-shadow -Wintrinsics-std -Wno-align-commons -Wno-overwrite-recursive -Wno-tabs -Wreal-q-constant -Wunderflow -Wunused-parameter -Wrealloc-lhs -Wrealloc-lhs-all -Wfrontend-loop-interchange -Wtarget-lifetime
 FPPSERIAL =-cpp -D_
 FPPMPI =-cpp -D_MPI	
 endif
@@ -73,7 +75,7 @@ endef
 
 
 
-all: FLAG:=${OFLAG} ${FPPMPI}
+all: FLAG:=${FFLAG} ${FPPMPI}
 all:
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 6)
@@ -92,6 +94,15 @@ debug:
 	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 
 
+aggressive: FLAG:=${AFLAG} ${FPPMPI}
+aggressive:
+	@echo ""
+	$(call colorecho,"compiling $(EXE).f90 ", 6)
+	@echo ""
+	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	@echo "Done"
+	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
+
 
 serial: FLAG:=${FFLAG} ${FPPSERIAL}
 serial:
@@ -101,6 +112,14 @@ serial:
 	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
 	$(call colorecho,"created $(EXEC) in  $(DIREXE)", 1)
+
+serial_testing: FLAG:=${TFLAG} ${FPPSERIAL}
+serial_testing:
+	@echo ""
+	$(call colorecho,"compiling $(EXE).f90 ", 6)
+	@echo ""
+	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	@echo "Done"
 
 serial_debug: FLAG:=${DFLAG} ${FPPSERIAL}
 serial_debug:

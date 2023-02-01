@@ -127,7 +127,7 @@ program ed_W90
 
   !Setup Wannier90 or read H(k) from file:                          
   call start_timer
-  call TB_w90_setup(reg(w90file),nlat=Nlat,nspin=Nspin,norb=Norb,verbose=.true.)
+  call TB_w90_setup(reg(w90file),nlat=[Nlat],nspin=Nspin,norb=[Norb],verbose=.true.)
   call stop_timer("TB_w90_setup")
 
 
