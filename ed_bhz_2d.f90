@@ -369,7 +369,7 @@ contains
   !PURPOSE: Set the Self-Energy
   !--------------------------------------------------------------------!
   subroutine set_SigmaBHZ(sigma)
-    complex(8),dimension(Nso,Nso),optional :: sigma(Nso,Nso)
+    complex(8),dimension(Nso,Nso),optional :: sigma
     sigmaBHZ = zero;if(present(sigma))sigmaBHZ=sigma
   end subroutine set_SigmaBHZ
 
@@ -389,7 +389,7 @@ contains
        !
        call set_sigmaBHZ()
        !
-       Npts = 4
+       Npts = 4w
        Lk=(Npts-1)*Nkpath
        allocate(kpath(Npts,3))
        kpath(1,:)=kpoint_gamma
