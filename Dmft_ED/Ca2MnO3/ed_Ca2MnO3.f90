@@ -189,9 +189,11 @@ program ed_CMO
      call TB_read_hk(Hk,reg(hkfile),Nkvec)     
      call assert_shape(Hk,[Ntot,Ntot,product(Nkvec)])
   else
-     call start_timer
-     call TB_w90_FermiLevel(Nkvec,filling,Ef)
-     call stop_timer("TB_w90_FermiLevel")
+     if(efflag)then
+        call start_timer
+        call TB_w90_FermiLevel(Nkvec,filling,Ef)
+        call stop_timer("TB_w90_FermiLevel")
+     endif
      !
      allocate(Hk(Ntot,Ntot,Nktot));Hk=zero
      call start_timer
@@ -216,8 +218,8 @@ program ed_CMO
   call TB_write_Hloc(Hloc(7:12,7:12),"w90Hloc_d2.dat")
 
 
-  ! !GET THE NON-INTERACTING BAND STRUCTURE
-  ! call  get_band_structure()
+  !GET THE NON-INTERACTING BAND STRUCTURE
+  call  get_band_structure()
 
 
   !CREATE THE REQUIRED DMFT ARRAYS FOR LOCAL FUNCTIONS:
@@ -291,7 +293,7 @@ program ed_CMO
   allocate(Bath(Nlat,Nb)); Bath=0d0
   call ed_init_solver(Bath)
   !
-  
+
   iloop=0 ; converged=.false.
   do while(.not.converged.AND.iloop<nloop)
      iloop=iloop+1
@@ -311,7 +313,7 @@ program ed_CMO
      call dmft_get_gloc(Hk,Gmats,Smats,axis='mats')
 
      !------    get Weiss
-     call dmft_self_consistency(Gmats,Smats,Weiss)
+     call dmft_self_consistency(Gmats,Smats,Weiss) !LOCAL: calG0_ii = {[Gloc^-1]_ii + Sigma_ii}^-1 ii=Mn1,Mn2
 
 
      !------ write them all
@@ -322,15 +324,6 @@ program ed_CMO
           "Mn1_dyz_dw","Mn1_dxz_dw","Mn1_dxy_dw",&
           "Mn2_dyz_up","Mn2_dxz_up","Mn2_dxy_up",&
           "Mn2_dyz_dw","Mn2_dxz_dw","Mn2_dxy_dw"])
-
-     call dmft_write_gf(Sreal(1:Nlso,1:Nlso,:),"Sigma",axis='real',iprint=1,&
-          Nvec=[1,1,1,1,1,1,1,1,1,1,1,1],&
-          labels=[&
-          "Mn1_dyz_up","Mn1_dxz_up","Mn1_dxy_up",&
-          "Mn1_dyz_dw","Mn1_dxz_dw","Mn1_dxy_dw",&
-          "Mn2_dyz_up","Mn2_dxz_up","Mn2_dxy_up",&
-          "Mn2_dyz_dw","Mn2_dxz_dw","Mn2_dxy_dw"])
-
 
      call dmft_write_gf(Gmats,"Gloc",axis='mats',iprint=1,&
           Nvec=[1,1,1,1,1,1,1,1,1,1,1,1,Ntot-Nlso],&
@@ -375,6 +368,7 @@ program ed_CMO
      !SO far it fixes total density of the D bands on Mn's
      if(nread/=0d0)then
         call ed_get_dens(dens)
+        !get P-density sum to D-dens
         call ed_search_variable(xmu,sum(dens),converged)
      endif
      !
@@ -389,6 +383,14 @@ program ed_CMO
   Sreal = zero
   call ed_get_sigma(Sreal(1:Nlso,1:Nlso,:), Nlat, axis='realaxis')
   call dmft_get_gloc(Hk,Greal,Sreal,axis='real')
+  call dmft_write_gf(Sreal(1:Nlso,1:Nlso,:),"Sigma",axis='real',iprint=1,&
+       Nvec=[1,1,1,1,1,1,1,1,1,1,1,1],&
+       labels=[&
+       "Mn1_dyz_up","Mn1_dxz_up","Mn1_dxy_up",&
+       "Mn1_dyz_dw","Mn1_dxz_dw","Mn1_dxy_dw",&
+       "Mn2_dyz_up","Mn2_dxz_up","Mn2_dxy_up",&
+       "Mn2_dyz_dw","Mn2_dxz_dw","Mn2_dxy_dw"])
+
   call dmft_write_gf(Greal,"Gloc",axis='real',iprint=1,&
        Nvec=[1,1,1,1,1,1,1,1,1,1,1,1,Ntot-Nlso],&
        labels=[&
@@ -402,7 +404,7 @@ program ed_CMO
   !COMPUTE THE KINETIC ENERGY:
   call dmft_kinetic_energy(Hk,Smats)
 
-  !GET THE NON-INTERACTING BAND STRUCTURE
+  !GET THE INTERACTING BAND STRUCTURE
   call  get_band_structure(Smats(:,:,1))
 
 
@@ -419,7 +421,7 @@ contains
 
   !get the system band structure, renormalized or bare
   subroutine get_band_structure(sigma)
-    complex(8),dimension(Ntot,Ntot),optional :: sigma
+    complex(8),dimension(Ntot,Ntot),optional :: sigma !Sigma(iw_1)
     character(len=32) :: file_name
     call start_timer
     call set_sigmaH();if(present(sigma))call set_sigmaH(sigma)
@@ -452,7 +454,7 @@ contains
   end subroutine set_sigmaH
 
 
-  !Renormalized H(k) model: G(k,w=0) = Z*(H(k)+ReSigma(w=0))
+  !Renormalized H(k) model: G^-1(k,w=0) = Z*(H(k)+ReSigma(w=0))
   function ed_Hk_model(kvec,N) result(Hk)
     real(8),dimension(:)      :: kvec
     integer                   :: N

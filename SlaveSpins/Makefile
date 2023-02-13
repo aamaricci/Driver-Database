@@ -4,27 +4,19 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
-EXE=
+EXE=ss_DFT
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
 
 # LIBRARIES TO BE INCLUDED
-#$ LIB_ED: either use *edlat* or *dmft_ed* (until we fix the naming conventions)
-#$ LIB_SS: specify slave spins library if any
 #$ LIB_TB: specify custom tight-binding library if any
-LIB_ED=dmft_ed
 LIB_SS=slave_spins
 #LIB_TB=honeytools
 
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-
-ifdef LIB_ED
-GLOB_INC+=$(shell pkg-config --cflags ${LIB_ED})
-GLOB_LIB+=$(shell pkg-config --libs ${LIB_ED})
-endif
 
 ifdef LIB_SS
 GLOB_INC+=$(shell pkg-config --cflags ${LIB_SS})
