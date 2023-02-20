@@ -189,7 +189,7 @@ program ed_CMO
      call TB_read_hk(Hk,reg(hkfile),Nkvec)     
      call assert_shape(Hk,[Ntot,Ntot,product(Nkvec)])
   else
-     if(efflag)then
+     if(EFflag)then
         call start_timer
         call TB_w90_FermiLevel(Nkvec,filling,Ef)
         call stop_timer("TB_w90_FermiLevel")
@@ -249,6 +249,7 @@ program ed_CMO
      H0(2,:,:) = diag(diagonal(Hloc(7:12,7:12)))
      !Set H0 as Hlocal in the impurity problem.  
      call ed_set_Hloc(H0,Nlat)
+     Nb=ed_get_bath_dimension()
      !
   case ("nonsu2")
      ! use the full local Hamiltonian H_loc = H_cf + H_soc.
@@ -286,10 +287,10 @@ program ed_CMO
      !
      !Set H0 as Hlocal in the impurity problem.  
      call ed_set_Hloc(H0,Nlat)
+     Nb=ed_get_bath_dimension(5)
   end select
 
   !INITIALIZE THE BATH AND THE SOLVER:
-  Nb=ed_get_bath_dimension(5)
   allocate(Bath(Nlat,Nb)); Bath=0d0
   call ed_init_solver(Bath)
   !
