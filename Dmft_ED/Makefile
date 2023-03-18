@@ -4,7 +4,7 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
-EXE=ed_Ca2MnO3
+EXE=ed_bhz_2d
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin

@@ -227,6 +227,7 @@ program ed_bhz
      Nb=ed_get_bath_dimension()
   endif
 
+
   call ed_set_hloc(j2so(bhzHloc))
   
   allocate(Bath(Nb))
@@ -389,7 +390,7 @@ contains
        !
        call set_sigmaBHZ()
        !
-       Npts = 4w
+       Npts = 4
        Lk=(Npts-1)*Nkpath
        allocate(kpath(Npts,3))
        kpath(1,:)=kpoint_gamma

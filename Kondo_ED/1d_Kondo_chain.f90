@@ -76,13 +76,13 @@ program Kondo1d
   call ed_Hij_info()
   !
   !SETUP THE INDICES MATCHING BATH AND INPURITY SITES
-  N   = Nsites(1)
-  N1  = (N+1)/2
-  do i=1,Nsites(Norb+1)
-     indi=N1-Nsites(Norb+1)/2 + (i-1)
-     if(Nsites(Norb+1)==Nsites(1))indi=i
-     Jkindx(i)=indi
-  enddo
+  ! N   = Nsites(1)
+  ! N1  = (N+1)/2
+  ! do i=1,Nsites(Norb+1)
+  !    indi=N1-Nsites(Norb+1)/2 + (i-1)
+  !    if(Nsites(Norb+1)==Nsites(1))indi=i
+  !    Jkindx(i)=indi
+  ! enddo
   !
   !> SOLVE THE KONDO PROBLEM
   call ed_init_solver()
