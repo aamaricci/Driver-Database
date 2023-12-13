@@ -164,6 +164,8 @@ program ed_bhz
         allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,2))
         Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
         Hsym_basis(:,:,:,:,2)=j2so(GammaEx) ;lambdasym_vector(2)=-sb_field
+        call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
+        Nb=ed_get_bath_dimension(2)!(Hsym_basis)
 
      case("EzEx")
         allocate(lambdasym_vector(3))
@@ -171,6 +173,8 @@ program ed_bhz
         Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
         Hsym_basis(:,:,:,:,2)=j2so(GammaEz) ;lambdasym_vector(2)=sb_field
         Hsym_basis(:,:,:,:,3)=j2so(GammaEx) ;lambdasym_vector(3)=-sb_field
+        call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
+        Nb=ed_get_bath_dimension(3)!(Hsym_basis)
 
      case("E0Ex")
         allocate(lambdasym_vector(3))
@@ -178,6 +182,8 @@ program ed_bhz
         Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
         Hsym_basis(:,:,:,:,2)=j2so(GammaE0) ;lambdasym_vector(2)=sb_field
         Hsym_basis(:,:,:,:,3)=j2so(GammaEx) ;lambdasym_vector(3)=-sb_field
+        call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
+        Nb=ed_get_bath_dimension(3)!(Hsym_basis)
 
      case("ExEy")
         allocate(lambdasym_vector(3))
@@ -185,14 +191,18 @@ program ed_bhz
         Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
         Hsym_basis(:,:,:,:,2)=j2so(GammaEx) ;lambdasym_vector(2)=-sb_field
         Hsym_basis(:,:,:,:,3)=j2so(GammaEy) ;lambdasym_vector(3)=sb_field
-
+        call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
+        Nb=ed_get_bath_dimension(3)!(Hsym_basis)
+        
      case("E0Ez")
         allocate(lambdasym_vector(3))
         allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,3))
         Hsym_basis(:,:,:,:,1)=j2so(Gamma5)  ;lambdasym_vector(1)=Mh
         Hsym_basis(:,:,:,:,2)=j2so(GammaE0) ;lambdasym_vector(2)=sb_field
         Hsym_basis(:,:,:,:,3)=j2so(GammaEz) ;lambdasym_vector(3)=sb_field
-
+        call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
+        Nb=ed_get_bath_dimension(3)!(Hsym_basis)
+        
      case("E0EzEx")
         allocate(lambdasym_vector(4))
         allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,4))
@@ -200,7 +210,9 @@ program ed_bhz
         Hsym_basis(:,:,:,:,2)=j2so(GammaE0) ;lambdasym_vector(2)=sb_field
         Hsym_basis(:,:,:,:,3)=j2so(GammaEz) ;lambdasym_vector(3)=sb_field
         Hsym_basis(:,:,:,:,4)=j2so(GammaEx) ;lambdasym_vector(4)=-sb_field
-
+        call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
+        Nb=ed_get_bath_dimension(4)!(Hsym_basis)
+        
      case("E0EzExEy")
         allocate(lambdasym_vector(5))
         allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,5))
@@ -209,7 +221,9 @@ program ed_bhz
         Hsym_basis(:,:,:,:,3)=j2so(GammaEz) ;lambdasym_vector(3)=sb_field
         Hsym_basis(:,:,:,:,4)=j2so(GammaEx) ;lambdasym_vector(4)=-sb_field
         Hsym_basis(:,:,:,:,5)=j2so(GammaEy) ;lambdasym_vector(5)=sb_field
-
+        call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
+        Nb=ed_get_bath_dimension(5)!(Hsym_basis)
+        
      case("E0EzExR0RzRx")
         allocate(lambdasym_vector(7))
         allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,7))
@@ -220,16 +234,20 @@ program ed_bhz
         Hsym_basis(:,:,:,:,5)=j2so(GammaR0) ;lambdasym_vector(5)=sb_field
         Hsym_basis(:,:,:,:,6)=j2so(GammaRz) ;lambdasym_vector(6)=sb_field
         Hsym_basis(:,:,:,:,7)=j2so(GammaRx) ;lambdasym_vector(7)=-sb_field
+        call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
+        Nb=ed_get_bath_dimension(7)!(Hsym_basis)
+        
      end select
-     call ed_set_Hreplica(Hsym_basis,lambdasym_vector)
-     Nb=ed_get_bath_dimension()!(Hsym_basis)
+
+
   else     
      Nb=ed_get_bath_dimension()
   endif
 
 
   call ed_set_hloc(j2so(bhzHloc))
-  
+
+  print*,Nb
   allocate(Bath(Nb))
   allocate(Bath_(Nb))
   call ed_init_solver(bath)
@@ -838,4 +856,4 @@ contains
     enddo
   end function j2so_l
 
-end program
+end program ed_bhz
