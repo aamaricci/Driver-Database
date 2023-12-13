@@ -11,8 +11,7 @@ DIREXE=$(HOME)/.bin
 
 # LIBRARIES TO BE INCLUDED
 #$ LIB_TB: specify custom tight-binding library if any
-LIB_ED=ed_kondo
-#LIB_ED=edlat
+LIB_ED=kondo_ed
 #LIB_TB=honeytools
 
 

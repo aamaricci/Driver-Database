@@ -4,7 +4,7 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
-EXE=1d_Kondo_chain
+EXE=ed_hm_2x2
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin

@@ -6,15 +6,15 @@
 !      _I-_I-_I--I-_I-_I-_I
 !_==optional
 program Kondo1d
-  USE ED_KONDO
+  USE KONDO_ED
   USE SCIFOR
 #ifdef _MPI
   USE MPI
 #endif
   implicit none
   character(len=16)   :: finput
-  real(8)             :: ts,timp,vtrap,atrap
-  integer             :: N,N1,i,indi
+  real(8)             :: ts,timp,vtrap,atrap,mue,mug
+  integer             :: N,N1,i,indi,j
   logical             :: pbc
   !
 #ifdef _MPI
@@ -24,6 +24,8 @@ program Kondo1d
   call parse_cmd_variable(finput,"FINPUT",default='inputED.conf')
   call parse_input_variable(ts,"TS",finput,default=0.25d0,comment="chain hopping parameter")
   call parse_input_variable(timp,"TIMP",finput,default=0.d0,comment="impurity hopping parameter")
+  call parse_input_variable(mug,"MUG",finput,default=0d0,comment="local energies of the bath at impurity sites")
+  call parse_input_variable(mue,"MUE",finput,default=0d0,comment="local energies at impurity sites")
   call parse_input_variable(atrap,"atrap",finput,default=0d0,comment="optical trap bottom energy ")
   call parse_input_variable(vtrap,"vtrap",finput,default=0d0,comment="optical trap potential amplitude: 1/2.V.x**2")
   call parse_input_variable(pbc,"PBC",finput,default=.false.,comment="T: PBC, F: OBC")
@@ -71,6 +73,14 @@ program Kondo1d
         call ed_Hij_add_link(N,1,2,2,1,one*timp)
      end if
   endif
+  !
+  !Add local chemical potential for either the impurities and the bath@impurity
+  do i=1,Nsites(2)
+     call ed_Hij_add_link(i,i,2,2,1,one*mue)
+     ! j = bath@imp(i)
+     if(Jkindx(i)==0)cycle;j=Jkindx(i)                
+     call ed_Hij_add_link(j,j,1,1,1,one*mug)
+  enddo
   !
   !PRINT INFO H(Ri,Rj)
   call ed_Hij_info()
