@@ -5,6 +5,7 @@
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
 EXE=1d_Kondo_chain
+#EXE=Kondo_pair
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
