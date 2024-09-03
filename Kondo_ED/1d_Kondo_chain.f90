@@ -9,10 +9,13 @@ program Kondo1d
   USE MPI
 #endif
   implicit none
-  character(len=16)                :: finput
-  real(8)                          :: ts,timp,mue,mug,Be,sg
-  integer                          :: N,N1,i,indi,j,ispin
-  logical                          :: pbc
+  character(len=16)   :: finput
+  real(8)             :: ts,timp,mue,mug,sg,bg,b
+  integer             :: N,N1,i,indi,j,ispin,dim
+  logical             :: pbc
+  integer,allocatable :: Mindx(:)
+  integer,allocatable :: Bindx(:)
+
 
   !
 #ifdef _MPI
@@ -22,10 +25,17 @@ program Kondo1d
   call parse_cmd_variable(finput,"FINPUT",default='inputED.conf')
   call parse_input_variable(ts,"TS",finput,default=0.25d0,comment="chain hopping parameter")
   call parse_input_variable(timp,"TIMP",finput,default=0.d0,comment="impurity hopping parameter")
-  call parse_input_variable(mue,"MUE",finput,default=0d0,comment="local energies at impurity sites")
-  call parse_input_variable(mug,"MUG",finput,default=0d0,comment="local energies of the bath at impurity sites")
+  call parse_input_variable(mue,"MUE",finput,default=0d0,comment="local energies shift at given impurity sites")
+  call parse_input_variable(mug,"MUG",finput,default=0d0,comment="local energy shift at given bath sites")
+  call parse_input_variable(bg,"BG",finput,default=0d0,comment="local magnetig field at given bath sites")
   call parse_input_variable(pbc,"PBC",finput,default=.false.,comment="T: PBC, F: OBC")
   call ed_read_input(trim(finput))
+
+  dim=Nsites(1)
+  allocate(Mindx(dim))
+  allocate(Bindx(dim))
+  call parse_input_variable(Mindx,"Mindx",finput,default=(/(0,i=1,dim)/),comment="labels of the sites where to apply potential shifts")
+  call parse_input_variable(Bindx,"Bindx",finput,default=(/(0,i=1,dim)/),comment="local Magnetic field along Z at impurity sites")
   !
   !
   if(any(Nsites(1:Norb)==0))stop "This driver is for Kondo problem only: Nsites=[Ns,..,iNs]"  
@@ -37,11 +47,11 @@ program Kondo1d
   call ed_Hij_init(Nsites,Nspin)
   !
   !> BUILD BATH PART
-  N   = Nsites(1)  !odd
-  N1  = (N+1)/2    !N1%2==0
+  N = Nsites(1)  !odd
   do ispin=1,Nspin
      call ed_Hij_add_link(1,2,1,1,ispin,one*ts)
      do i=2,N-1
+        print*,i-1,i,i+1
         call ed_Hij_add_link(i,i-1,1,1,ispin,one*ts)
         call ed_Hij_add_link(i,i+1,1,1,ispin,one*ts)
      enddo
@@ -50,18 +60,29 @@ program Kondo1d
         call ed_Hij_add_link(1,N,1,1,ispin,one*ts)
         call ed_Hij_add_link(N,1,1,1,ispin,one*ts)
      end if
-     do i=1,Nsites(2)
-        if(Mindx(i)==0)cycle;j=Mindx(i)
-        call ed_Hij_add_link(j,j,1,1,ispin,one*mug)
-     enddo
+     if(mug/=0d0)then
+        do i=1,N
+           if(Mindx(i)==0)cycle
+           j=Mindx(i)
+           call ed_Hij_add_link(j,j,1,1,ispin,one*mug)
+        enddo
+     endif
   enddo
+  if(Nspin==2.AND.Bg/=0d0)then
+     do i=1,N
+        if(Bindx(i)==0)cycle
+        B  = Bg*Bindx(i)
+        call ed_Hij_add_link(i,i,1,1,1, one*b)
+        call ed_Hij_add_link(i,i,1,1,2,-one*b)
+     enddo
+  endif
   !
   !
   !> BUILD THE IMPURITY PART
-  N   = Nsites(2)      !odd
-  do ispin=1,Nspin
-     if(N>1)then
-        N1  = (N+1)/2 !N1%2==0
+  print*,"Building IMP"
+  N = Nsites(2)      !odd
+  if(N>1)then
+     do ispin=1,Nspin
         call ed_Hij_add_link(1,2,2,2,ispin,one*timp)
         do i=2,N-1
            call ed_Hij_add_link(i,i-1,2,2,ispin,one*timp)
@@ -72,19 +93,13 @@ program Kondo1d
            call ed_Hij_add_link(1,N,2,2,ispin,one*timp)
            call ed_Hij_add_link(N,1,2,2,ispin,one*timp)
         end if
-     endif
-     do i=1,N
-        if(Mindx(i)==0)cycle
-        j=Mindx(i)
-        call ed_Hij_add_link(j,j,2,2,ispin,one*mue)
+        do i=1,N
+           if(Mindx(i)==0)cycle
+           j=Mindx(i)
+           call ed_Hij_add_link(j,j,2,2,ispin,one*mue)
+        enddo
      enddo
-     do i=1,N
-        if(Bindx(i)==0d0)cycle
-        sg = (-1d0)**ispin
-        Be = Bindx(i)*sg
-        call ed_Hij_add_link(i,i,2,2,ispin,one*Be)
-     enddo
-  enddo
+  endif
   !
   !
   !PRINT INFO H(Ri,Rj)

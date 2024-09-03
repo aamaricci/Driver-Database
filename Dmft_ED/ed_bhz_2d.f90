@@ -1,5 +1,5 @@
 program ed_bhz
-  USE DMFT_ED
+  USE EDIPACK2
   USE SCIFOR
   USE DMFT_TOOLS
   USE MPI
@@ -92,23 +92,23 @@ program ed_bhz
   allocate(SigmaBHZ(Nso,Nso))
   allocate(Zmats(Nso,Nso))
 
-  gamma1=kron_pauli( pauli_sigma_z, pauli_tau_x)
-  gamma2=kron_pauli( pauli_sigma_0,-pauli_tau_y)
-  gamma5=kron_pauli( pauli_sigma_0, pauli_tau_z)
-  gammaN=kron_pauli( pauli_sigma_0, pauli_tau_0)
-  ! gammaJ=kron_pauli( pauli_sigma_x, (pauli_tau_0+pauli_tau_3)/2d0)
-  ! gammaJ=kron_pauli( pauli_sigma_x, pauli_tau_0) + kron_pauli( pauli_sigma_0, pauli_tau_x)
-  gammaJ=kron_pauli( pauli_sigma_x, pauli_tau_0)
+  gamma1=kron( pauli_sigma_z, pauli_tau_x)
+  gamma2=kron( pauli_sigma_0,-pauli_tau_y)
+  gamma5=kron( pauli_sigma_0, pauli_tau_z)
+  gammaN=kron( pauli_sigma_0, pauli_tau_0)
+  ! gammaJ=kron( pauli_sigma_x, (pauli_tau_0+pauli_tau_3)/2d0)
+  ! gammaJ=kron( pauli_sigma_x, pauli_tau_0) + kron( pauli_sigma_0, pauli_tau_x)
+  gammaJ=kron( pauli_sigma_x, pauli_tau_0)
   !
-  gammaE0=kron_pauli( pauli_sigma_0, pauli_tau_x )
-  gammaEx=kron_pauli( pauli_sigma_x, pauli_tau_x )
-  gammaEy=kron_pauli( pauli_sigma_y, pauli_tau_x )
-  gammaEz=kron_pauli( pauli_sigma_z, pauli_tau_x )
+  gammaE0=kron( pauli_sigma_0, pauli_tau_x )
+  gammaEx=kron( pauli_sigma_x, pauli_tau_x )
+  gammaEy=kron( pauli_sigma_y, pauli_tau_x )
+  gammaEz=kron( pauli_sigma_z, pauli_tau_x )
   !
-  gammaR0=kron_pauli( pauli_sigma_0, pauli_tau_y )
-  gammaRx=kron_pauli( pauli_sigma_x, pauli_tau_y )
-  gammaRy=kron_pauli( pauli_sigma_y, pauli_tau_y )
-  gammaRz=kron_pauli( pauli_sigma_z, pauli_tau_y )
+  gammaR0=kron( pauli_sigma_0, pauli_tau_y )
+  gammaRx=kron( pauli_sigma_x, pauli_tau_y )
+  gammaRy=kron( pauli_sigma_y, pauli_tau_y )
+  gammaRz=kron( pauli_sigma_z, pauli_tau_y )
 
 
 
@@ -557,7 +557,7 @@ contains
     complex(8),dimension(4,4) :: GammaJ
 
 
-    gammaJ=kron_pauli( pauli_sigma_0, pauli_tau_x )
+    gammaJ=kron( pauli_sigma_0, pauli_tau_x )
 
 
     if(Liw >= Lmats) stop "get_Xem ERROR: Liw > Lmats"
@@ -696,10 +696,10 @@ contains
     xk  = lambda*sin(kx)
     yk  = lambda*sin(ky)
     Ek  = sqrt( Mk**2 + xk**2 + yk**2 )
-    wmn = 2*Ek*kron_pauli(0.5d0*(pauli_sigma_0+pauli_sigma_x),pauli_tau_y)
+    wmn = 2*Ek*kron(0.5d0*(pauli_sigma_0+pauli_sigma_x),pauli_tau_y)
     wmn = matmul(matmul(conjg(transpose(uk)),wmn),uk)
     dHk = sin(kx)*Gamma5 + lambda*cos(kx)*Gamma1
-    lhk = wmn*kron_pauli(pauli_sigma_x,pauli_tau_y)!sigma_x \ocirc \tau_y
+    lhk = wmn*kron(pauli_sigma_x,pauli_tau_y)!sigma_x \ocirc \tau_y
     Hk  = dHk + lHk   
   end function hk_dkx_bhz
 

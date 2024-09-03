@@ -7,7 +7,7 @@ program ed_hm_chain
   implicit none
   character(len=16)   :: finput
   real(8)             :: ts,t0,gamma,kx,ek,Icurrent,beta
-  integer             :: N,N1,i,Tlen,it
+  integer             :: N,N1,i,Tlen,it,iorb
   real(8),allocatable :: temperature_list(:)
   integer,allocatable :: Tord(:)
   logical             :: gflag,pbc,tbool
@@ -21,7 +21,7 @@ program ed_hm_chain
   master = get_Master_MPI(comm)
 
   call parse_cmd_variable(finput,"FINPUT",default='inputED.conf')
-  call parse_input_variable(ts,"TS",finput,default=0.25d0,comment="chain hopping parameter")
+  call parse_input_variable(ts,"TS",finput,default=-1d0,comment="chain hopping parameter")
   call parse_input_variable(pbc,"PBC",finput,default=.true.,comment="T: PBC, F: OBC")
   call ed_read_input(trim(finput))
   !
@@ -34,25 +34,24 @@ program ed_hm_chain
   call add_ctrl_var(wfin,"wfin")
   call add_ctrl_var(eps,"eps")
 
-  if(Nspin/=1.OR.Norb/=1)stop "This driver is for 1d chain problem only: Norb=1, Nspin=1"
+  if(Nspin/=1.OR.Norb>2)stop "This driver is for 1d chain problem only: Norb<3, Nspin=1"
   if(any(Nsites(1:Norb)==0))stop "This driver is for 1d chain problem only: Nsites=[1,N]"
 
-  N  = Nsites(1)
-
-
-  N  = Nsites(1)
   !1d chain with PBC
   call ed_Hij_init(Nsites(1:Norb))
-  call ed_Hij_add_link(1,2,1,1,1,one*ts)
-  do i=2,N-1
-     call ed_Hij_add_link(i,i-1,1,1,1,one*ts)
-     call ed_Hij_add_link(i,i+1,1,1,1,one*ts)
+  do iorb=1,Norb
+     N = Nsites(iorb)
+     call ed_Hij_add_link(1,2,iorb,iorb,1,one*ts)
+     do i=2,N-1
+        call ed_Hij_add_link(i,i-1,iorb,iorb,1,one*ts)
+        call ed_Hij_add_link(i,i+1,iorb,iorb,1,one*ts)
+     enddo
+     call ed_Hij_add_link(N,N-1,iorb,iorb,1,one*ts)
+     if(pbc)then
+        call ed_Hij_add_link(1,N,iorb,iorb,1,one*ts)
+        call ed_Hij_add_link(N,1,iorb,iorb,1,one*ts)
+     end if
   enddo
-  call ed_Hij_add_link(N,N-1,1,1,1,one*ts)
-  if(pbc)then
-     call ed_Hij_add_link(1,N,1,1,1,one*ts)
-     call ed_Hij_add_link(N,1,1,1,1,one*ts)
-  end if
   if(master)call ed_Hij_info()
   !
   !
