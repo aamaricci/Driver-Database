@@ -1,5 +1,5 @@
 program lancED
-  USE DMFT_ED
+  USE EDIPACK2
   USE SCIFOR
   USE DMFT_TOOLS
   USE MPI

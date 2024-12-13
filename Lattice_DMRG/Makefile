@@ -4,23 +4,21 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
-EXE=ed_hm_bethe
+EXE=dmrg_spin_1d
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
 
 # LIBRARIES TO BE INCLUDED
 #$ LIB_TB: specify custom tight-binding library if any
-LIB_ED=edipack2
 #LIB_TB=honeytools
-
+LIB_DMRG=dmrg
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-
-ifdef LIB_ED
-GLOB_INC+=$(shell pkg-config --cflags ${LIB_ED})
-GLOB_LIB+=$(shell pkg-config --libs ${LIB_ED})
+ifdef LIB_DMRG
+GLOB_INC+=$(shell pkg-config --cflags ${LIB_DMRG})
+GLOB_LIB+=$(shell pkg-config --libs ${LIB_DMRG})
 endif
 
 ifdef LIB_TB

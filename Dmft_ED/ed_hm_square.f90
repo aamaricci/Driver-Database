@@ -1,5 +1,5 @@
 program ed_hm_square
-  USE DMFT_ED
+  USE EDIPACK2
   USE SCIFOR
   USE DMFT_TOOLS
   USE MPI
@@ -48,7 +48,7 @@ program ed_hm_square
   call parse_input_variable(symOrbs,"symOrbs",finput,default=.false.)
   call parse_input_variable(Vel,"Vel",finput,default=0d0,comment="hopping parameter")
   !
-  call ed_read_input(trim(finput),comm)
+  call ed_read_input(trim(finput))
   !
   call add_ctrl_var(beta,"BETA")
   call add_ctrl_var(Norb,"NORB")
@@ -74,59 +74,58 @@ program ed_hm_square
   !Build Hk
   call TB_set_bk(bkx=[pi2,0d0],bky=[0d0,pi2])
   Lk = Nx*Nx
-  allocate(Hk(Nso,Nso,Lk),Wt(Lk))
+  allocate(Hk(Nso,Nso,Lk))
   call TB_build_model(Hk(:,:,:),hk_model,Nso,[Nx,Nx])
-  Wt = 1d0/Lk
   Hloc   = zero
   Hloc(1,1,:,:) = sum(Hk,dim=3)/Lk
   where(abs(dreal(Hloc))<1.d-6) Hloc=0d0
 
-  
-  if(master)call TB_write_hk(Hk(:,:,:),"Hk2d.dat",Nlat=1,&
-                             Nspin=1,&
-                             Norb=Norb,&
-                             Nkvec=[Nx,Nx])
 
 
   !Setup Bath
   select case(bath_type)
-      case default
-         stop "Wrong setup from input file: bath_type has to be 'normal' or 'replica'"
-      case("normal")
-         !
-         Nb=ed_get_bath_dimension()
-         !
-      case("replica")
-         !
-         allocate(lambdasym_vectors(Nbath,1)) !Nsym=1
-         allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,1))
-         !
-         Hsym_basis(:,:,:,:,1) = so2nn(zeye(Nso)) !Replica onsite energy
-         !
-         write(*,*) "Replica initialization: ed_hw_bath="//str(ed_hw_bath)
-         !
-         do irepl=1,Nbath
-            onsite = irepl -1 - (Nbath-1)/2d0        ![-(Nbath-1)/2:(Nbath-1)/2]
-            onsite = onsite * 2*ed_hw_bath/(Nbath-1) !P-H symmetric band, -ed_hw_bath:ed_hw_bath
-            lambdasym_vectors(irepl,1) = onsite      !Multiplies the suitable identity 
-         enddo
-         !
-         if(mod(Nbath,2)==0)then
-            lambdasym_vectors(Nbath/2,1) = -1d-1    !Much needed small energies around
-            lambdasym_vectors(Nbath/2+1,1) = 1d-1   !the fermi level. (for even Nbath)
-         endif
-         !
-         call ed_set_Hreplica(Hsym_basis,lambdasym_vectors)
-         Nb=ed_get_bath_dimension(Hsym_basis)
-         !
+  case default
+     stop "Wrong setup from input file: bath_type has to be 'normal' or 'replica'"
+  case("normal")
+     !
+     Nb=ed_get_bath_dimension()
+     !
+  case("replica")
+     !
+     allocate(lambdasym_vectors(Nbath,1)) !Nsym=1
+     allocate(Hsym_basis(Nspin,Nspin,Norb,Norb,1))
+     !
+     Hsym_basis(:,:,:,:,1) = so2nn(zeye(Nso)) !Replica onsite energy
+     !
+     write(*,*) "Replica initialization: ed_hw_bath="//str(ed_hw_bath)
+     !
+     do irepl=1,Nbath
+        onsite = irepl -1 - (Nbath-1)/2d0        ![-(Nbath-1)/2:(Nbath-1)/2]
+        onsite = onsite * 2*ed_hw_bath/(Nbath-1) !P-H symmetric band, -ed_hw_bath:ed_hw_bath
+        lambdasym_vectors(irepl,1) = onsite      !Multiplies the suitable identity 
+     enddo
+     !
+     if(mod(Nbath,2)==0)then
+        lambdasym_vectors(Nbath/2,1) = -1d-1    !Much needed small energies around
+        lambdasym_vectors(Nbath/2+1,1) = 1d-1   !the fermi level. (for even Nbath)
+     endif
+     !
+     call ed_set_Hreplica(Hsym_basis,lambdasym_vectors)
+     Nb=ed_get_bath_dimension(1)
+     !
   end select
   !
+
+
+  call ed_set_hloc(Hloc)
+
+
   allocate(bath(Nb))
   allocate(bath_(Nb))
   bath_ = zero
   !
   !Setup solver
-  call ed_init_solver(comm,bath)
+  call ed_init_solver(bath)
 
 
 
@@ -138,29 +137,38 @@ program ed_hm_square
      call start_loop(iloop,nloop,"DMFT-loop")
 
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-     call ed_solve(comm,bath,Hloc) 
-     call ed_get_sigma_matsubara(Smats)
-     call ed_get_sigma_realaxis(Sreal)
+     call ed_solve(bath) 
+     call ed_get_sigma(Smats,axis='mats')
+     call ed_get_sigma(Sreal,axis='real')
 
      !Compute the local gfs on the imaginary axis:
-     call dmft_gloc_matsubara(Hk,Gmats,Smats)
-     call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
+     call dmft_get_gloc(Hk,Gmats,Smats,axis='mats')
+     call dmft_write_gf(Gmats,"Gloc",axis='mats',iprint=1)
+
 
      !Get the Weiss field/Delta function to be fitted
-     call dmft_self_consistency(Gmats,Smats,Weiss,Hloc,SCtype=cg_scheme)
-     call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=1)
+     select case(cg_scheme)
+     case default;stop "cg_scheme unsupported"
+     case('weiss')
+        call dmft_self_consistency(Gmats,Smats,Weiss)
+        call dmft_write_gf(Weiss,"Weiss",axis='mats',iprint=1)
+     case('delta')
+        call dmft_self_consistency(Gmats,Smats,Weiss,Hloc)
+        call dmft_write_gf(Weiss,"Delta",axis='mats',iprint=1)
+     end select
+
 
      if(mixG0)then
         if(iloop>1)Weiss = wmixing*Weiss + (1.d0-wmixing)*Weiss_
         Weiss_=Weiss
      endif
-     
+
      !Perform the SELF-CONSISTENCY by fitting the new bath
      if(symOrbs)then
-        call ed_chi2_fitgf(comm,Weiss,bath,ispin=1,iorb=1)
+        call ed_chi2_fitgf(Weiss,bath,ispin=1,iorb=1)
         call ed_orb_equality_bath(bath,save=.true.)
      else
-        call ed_chi2_fitgf(comm,Weiss,bath,ispin=1)
+        call ed_chi2_fitgf(Weiss,bath,ispin=1)
      endif
 
      !MIXING:
@@ -181,20 +189,24 @@ program ed_hm_square
      call end_loop
   enddo
 
+
+  !Compute the local gfs on the real axis:
+  call dmft_get_gloc(Hk,Greal,Sreal,axis='real')
+  call dmft_write_gf(Greal,"Gloc",axis='real',iprint=1)
+
+
   !Get kinetic energy:
   call dmft_kinetic_energy(Hk,Smats)
 
-  !Compute the local gfs on the real axis:
-  call dmft_gloc_realaxis(Hk,Greal,Sreal)
-  call dmft_print_gf_realaxis(Greal,"Gloc",iprint=1)
 
-  !Compute the Luttinger invariants:
-  if(master)then
-     allocate(luttinger(Norb))
-     call luttinger_integral(luttinger,Greal,Sreal)
-     call print_luttinger(luttinger)
-     deallocate(luttinger)
-  endif
+
+  ! !Compute the Luttinger invariants:
+  ! if(master)then
+  !    allocate(luttinger(Norb))
+  !    call luttinger_integral(luttinger,Greal,Sreal)
+  !    call print_luttinger(luttinger)
+  !    deallocate(luttinger)
+  ! endif
 
   call finalize_MPI()
 
@@ -233,13 +245,13 @@ contains
     if(.not.allocated(IL)) allocate(IL(Norb))
     !
     do iorb=1,Norb
-        do ispin=1,Nspin !Nspin is constrained to be equal to 1 above.
-            dSreal(:) = deriv(dreal(Sloc(ispin,ispin,iorb,iorb,:)),1d0) !No need to include 1/dw if
-            dSimag(:) = deriv(dimag(Sloc(ispin,ispin,iorb,iorb,:)),1d0) !we are integrating in dw...
-            integrand = dimag(Gloc(ispin,ispin,iorb,iorb,:)*cmplx(dSreal,dSimag))
-            IL(iorb) = sum(integrand)       !Naive Riemann-sum (no need of trapezoidal-sums with typical Lreal)
-            IL(iorb) = 1/pi * abs(IL(iorb)) !The theoretical sign is determined by sign(mu)...
-        enddo
+       do ispin=1,Nspin !Nspin is constrained to be equal to 1 above.
+          dSreal(:) = deriv(dreal(Sloc(ispin,ispin,iorb,iorb,:)),1d0) !No need to include 1/dw if
+          dSimag(:) = deriv(dimag(Sloc(ispin,ispin,iorb,iorb,:)),1d0) !we are integrating in dw...
+          integrand = dimag(Gloc(ispin,ispin,iorb,iorb,:)*cmplx(dSreal,dSimag))
+          IL(iorb) = sum(integrand)       !Naive Riemann-sum (no need of trapezoidal-sums with typical Lreal)
+          IL(iorb) = 1/pi * abs(IL(iorb)) !The theoretical sign is determined by sign(mu)...
+       enddo
     enddo
     !
   end subroutine luttinger_integral
@@ -279,47 +291,47 @@ contains
   !PURPOSE : reshape from [Nso]x[Nso] matrix to [Nspin,Nspin,Norb,Norb] array
   !+---------------------------------------------------------------------------+
   function so2nn(Hlso) result(Hnnn)
-   complex(8),dimension(Nspin*Norb,Nspin*Norb) :: Hlso
-   complex(8),dimension(Nspin,Nspin,Norb,Norb) :: Hnnn
-   integer                                     :: iorb,jorb
-   integer                                     :: ispin,jspin
-   integer                                     :: is,js
-   Hnnn=zero
-   do ispin=1,Nspin
-      do jspin=1,Nspin
-         do iorb=1,Norb
-            do jorb=1,Norb
-               is = iorb + (ispin-1)*Norb
-               js = jorb + (jspin-1)*Norb
-               Hnnn(ispin,jspin,iorb,jorb) = Hlso(is,js)
-            enddo
-         enddo
-      enddo
-   enddo
- end function so2nn
+    complex(8),dimension(Nspin*Norb,Nspin*Norb) :: Hlso
+    complex(8),dimension(Nspin,Nspin,Norb,Norb) :: Hnnn
+    integer                                     :: iorb,jorb
+    integer                                     :: ispin,jspin
+    integer                                     :: is,js
+    Hnnn=zero
+    do ispin=1,Nspin
+       do jspin=1,Nspin
+          do iorb=1,Norb
+             do jorb=1,Norb
+                is = iorb + (ispin-1)*Norb
+                js = jorb + (jspin-1)*Norb
+                Hnnn(ispin,jspin,iorb,jorb) = Hlso(is,js)
+             enddo
+          enddo
+       enddo
+    enddo
+  end function so2nn
 
- !+---------------------------------------------------------------------------+
- !PURPOSE : reshape from [Nspin,Nspin,Norb,Norb] array to [Nso]x[Nso] matrix
- !+---------------------------------------------------------------------------+
- function nn2so(Hnnn) result(Hlso)
-   complex(8),dimension(Nspin,Nspin,Norb,Norb) :: Hnnn
-   complex(8),dimension(Nspin*Norb,Nspin*Norb) :: Hlso
-   integer                                     :: iorb,jorb
-   integer                                     :: ispin,jspin
-   integer                                     :: is,js
-   Hlso=zero
-   do ispin=1,Nspin
-      do jspin=1,Nspin
-         do iorb=1,Norb
-            do jorb=1,Norb
-               is = iorb + (ispin-1)*Norb
-               js = jorb + (jspin-1)*Norb
-               Hlso(is,js) = Hnnn(ispin,jspin,iorb,jorb)
-            enddo
-         enddo
-      enddo
-   enddo
- end function nn2so
+  !+---------------------------------------------------------------------------+
+  !PURPOSE : reshape from [Nspin,Nspin,Norb,Norb] array to [Nso]x[Nso] matrix
+  !+---------------------------------------------------------------------------+
+  function nn2so(Hnnn) result(Hlso)
+    complex(8),dimension(Nspin,Nspin,Norb,Norb) :: Hnnn
+    complex(8),dimension(Nspin*Norb,Nspin*Norb) :: Hlso
+    integer                                     :: iorb,jorb
+    integer                                     :: ispin,jspin
+    integer                                     :: is,js
+    Hlso=zero
+    do ispin=1,Nspin
+       do jspin=1,Nspin
+          do iorb=1,Norb
+             do jorb=1,Norb
+                is = iorb + (ispin-1)*Norb
+                js = jorb + (jspin-1)*Norb
+                Hlso(is,js) = Hnnn(ispin,jspin,iorb,jorb)
+             enddo
+          enddo
+       enddo
+    enddo
+  end function nn2so
 
 end program ed_hm_square
 
