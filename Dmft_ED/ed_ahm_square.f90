@@ -60,7 +60,6 @@ program ed_ahm_square
   Nno   = Nambu*Nso
 
 
-
   D = 8*ts
 
   !Allocate Dynamical Fields:
@@ -81,41 +80,47 @@ program ed_ahm_square
   call TB_build_model(Hk(1,:,:,:),hk_model,Nso,[Nx,Nx])
   Hk(2,:,:,:) = -conjg(Hk(1,:,:,:)) !transpose?
   !
-  allocate(Hloc(Nso,Nso))
+  allocate(Hloc(Nso,Nso));Hloc=zero
   Hloc = sum(Hk(1,:,:,:),dim=3)/Lk
   where(abs(dreal(Hloc))<1d-6)Hloc=zero
+
+
+  !Build this any, u never know
+  select case(Norb)
+  case (1)
+     Nsym = 2
+     allocate(Hsym_basis(Nno,Nno,Nsym))
+     allocate(LambdaVec(Nbath,Nsym))
+     !Hsym(:,:) = pauli_Nambu
+     Hsym_basis(:,:,1)=pauli_tau_z ; LambdaVec(:,1)= -D+2*D/(Nbath-1)*(arange(1,Nbath)-1)
+     Hsym_basis(:,:,2)=pauli_tau_x ; LambdaVec(:,2)= sb_field
+  case (2)
+     allocate(Hsym_basis(Nno,Nno,Nsym))
+     allocate(LambdaVec(Nbath,Nsym))
+     !Hsym(:,:) = kron(pauli_Nambu,pauli_Orb)
+     Hsym_basis(:,:,1)=kron( pauli_sigma_z, pauli_tau_0) ; LambdaVec(:,1)= -D+2*D/(Nbath-1)*(arange(1,Nbath)-1)
+     Hsym_basis(:,:,2)=kron( pauli_sigma_x, pauli_tau_0) ; LambdaVec(:,2)= sb_field
+     if(Nsym==3)then
+        Hsym_basis(:,:,3)=kron( pauli_sigma_x, pauli_tau_x)
+        LambdaVec(:,3)= sb_field
+     endif
+  case default;stop "Norb>2 not supported in this code"
+  end select
+
 
   select case(bath_type)
   case default
      Nb   = ed_get_bath_dimension()
-  case("replica","general")
-     select case(Norb)
-     case (1)
-        Nsym = 2
-        allocate(Hsym_basis(Nno,Nno,Nsym))
-        allocate(LambdaVec(Nbath,Nsym))
-        !Hsym(:,:) = pauli_Nambu
-        Hsym_basis(:,:,1)=pauli_tau_z ; LambdaVec(:,1)= -D+2*D/(Nbath-1)*(arange(1,Nbath)-1)
-        Hsym_basis(:,:,2)=pauli_tau_x ; LambdaVec(:,2)= sb_field
-     case (2)
-        allocate(Hsym_basis(Nno,Nno,Nsym))
-        allocate(LambdaVec(Nbath,Nsym))
-        !Hsym(:,:) = kron(pauli_Nambu,pauli_Orb)
-        Hsym_basis(:,:,1)=kron( pauli_sigma_z, pauli_tau_0) ; LambdaVec(:,1)= -D+2*D/(Nbath-1)*(arange(1,Nbath)-1)
-        Hsym_basis(:,:,2)=kron( pauli_sigma_x, pauli_tau_0) ; LambdaVec(:,2)= sb_field
-        if(Nsym==3)Hsym_basis(:,:,3)=kron( pauli_sigma_x, pauli_tau_x) ; LambdaVec(:,3)= sb_field
-     case default;stop "Norb>2 not supported in this code"
-     end select
-     !> Set the replica bath
+  case("replica")
      call ed_set_Hreplica(Hsym_basis,LambdaVec)
+     Nb   = ed_get_bath_dimension(Nsym)
+  case("general")
+     call ed_set_Hgeneral(Hsym_basis,LambdaVec)
      Nb   = ed_get_bath_dimension(Nsym)
   end select
 
-
   !set Hloc
   call ed_set_Hloc(hloc)
-
-
 
 
   allocate(bath(Nb))
