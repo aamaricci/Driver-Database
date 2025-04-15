@@ -247,7 +247,6 @@ program ed_bhz
 
   call ed_set_hloc(j2so(bhzHloc))
 
-  print*,Nb
   allocate(Bath(Nb))
   allocate(Bath_(Nb))
   call ed_init_solver(bath)
@@ -266,7 +265,7 @@ program ed_bhz
      call ed_get_dens(dens)
 
      !Get GLOC:
-     call dmft_gloc_matsubara(Hk,Gmats,Smats)
+     call dmft_get_gloc(Hk,Gmats,Smats,axis='m')
      call dmft_write_gf(Gmats,"Gloc",axis='mats',iprint=print_mode)
 
 
@@ -320,7 +319,7 @@ program ed_bhz
   enddo
 
 
-  call dmft_gloc_realaxis(Hk,Greal,Sreal)
+  call dmft_get_gloc(Hk,Greal,Sreal,axis='r')
   call dmft_write_gf(Greal,"Gloc",axis='real',iprint=print_mode)
 
   call dmft_kinetic_energy(Hk,Smats)
@@ -518,7 +517,7 @@ contains
     allocate(Gkreal(Lk,Nspin,Nspin,Norb,Norb,Lw));Gkreal=zero        
     call start_timer
     do ik=1,Lk
-       call dmft_gk_realaxis(Hk(:,:,ik),Gkreal(ik,:,:,:,:,:),Sreal_)
+       call dmft_get_gk(Hk(:,:,ik),Gkreal(ik,:,:,:,:,:),Sreal_,axis='r')
        call eta(ik,Lk)
     enddo
     call stop_timer
@@ -645,7 +644,7 @@ contains
     nkk= zero
     do ik=1,Lk
        kvec = Kgrid(ik,:)
-       call dmft_gk_matsubara(Hk(:,:,ik),Gkmats,Smats)
+       call dmft_get_gk(Hk(:,:,ik),Gkmats,Smats,axis='m')
        Gk = so2j_l(Gkmats)
        !
        do io=1,Nso

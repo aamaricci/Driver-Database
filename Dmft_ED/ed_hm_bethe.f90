@@ -15,14 +15,13 @@ program lancED
   real(8),dimension(:,:),allocatable          :: Ebands
   real(8),dimension(:),allocatable            :: H0
   real(8),dimension(:),allocatable            :: de,dens
-  real(8)                                     :: ef,filling,beta_gr,beta_input,eps_start,eps_end
   !
   real(8),dimension(:),allocatable            :: Wband,wfreq,eps_array,wm,wr
   !
-  complex(8),allocatable,dimension(:,:,:,:,:) :: Weiss,Smats,Sreal,Gmats,Greal,Weiss_,Greb,Sreb
+  complex(8),allocatable,dimension(:,:,:,:,:) :: Weiss,Smats,Sreal,Gmats,Greal,Weiss_
   complex(8),allocatable,dimension(:)         :: Gtest
   character(len=16)                           :: finput
-  real(8)                                     :: wmixing,eps_stop
+  real(8)                                     :: wmixing
   !
   integer                                     :: comm,rank
   logical                                     :: master
@@ -45,7 +44,7 @@ program lancED
   call parse_input_variable(mixG0,"mixG0",finput,default=.false.)
   call parse_input_variable(symOrbs,"symOrbs",finput,default=.false.)
   !
-  call ed_read_input(trim(finput),comm)
+  call ed_read_input(trim(finput))
 
   !Add DMFT CTRL Variables:
   call add_ctrl_var(Norb,"norb")
@@ -89,19 +88,13 @@ program lancED
   Hloc(1,1,:,:)=diag(H0)
 
 
+  call ed_set_hloc(Hloc)
+
   !setup solver
   Nb=ed_get_bath_dimension()
   allocate(bath(Nb))
   allocate(bath_(Nb))
-  call ed_init_solver(comm,bath)
-
-
-  !REBUILD impurity GF and SE
-  ! if(reGF)then
-  !    call ed_rebuild_gf(comm,Hloc)     
-  !    call finalize_MPI()
-  !    stop
-  ! end if
+  call ed_init_solver(bath)
 
 
   !DMFT loop
@@ -111,24 +104,24 @@ program lancED
      call start_loop(iloop,nloop,"DMFT-loop")
      !
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
-     call ed_solve(comm,bath,Hloc)
-     call ed_get_sigma_matsubara(Smats)
-     call ed_get_sigma_realaxis(Sreal)
+     call ed_solve(bath)
+     call ed_get_sigma(Smats,axis='m')
+     call ed_get_sigma(Sreal,axis='r')
      call ed_get_dens(dens)
 
      ! compute the local gf:
-     call dmft_gloc_matsubara(Ebands,Dbands,H0,Gmats,Smats)
-     call dmft_print_gf_matsubara(Gmats,"Gloc",iprint=1)
+     call dmft_get_gloc(Ebands,Dbands,H0,Gmats,Smats,axis='m')
+     call dmft_write_gf(Gmats,"Gloc",axis='m',iprint=1)
 
      !
      !Get the Weiss field/Delta function to be fitted
      if(.not.betheSC)then
-        call dmft_self_consistency(Gmats,Smats,Weiss,Hloc,SCtype=cg_scheme)
+        call dmft_self_consistency(Gmats,Smats,Weiss,Hloc)
      else
-        if(wGimp)call ed_get_gimp_matsubara(Gmats)
-        call dmft_self_consistency(Gmats,Weiss,Hloc,SCtype=cg_scheme,wbands=Wband)
+        if(wGimp)call ed_get_gimp(Gmats,axis='m')
+        call dmft_self_consistency(Gmats,Smats,Weiss,Hloc)
      endif
-     call dmft_print_gf_matsubara(Weiss,"Weiss",iprint=1)
+     call dmft_write_gf(Weiss,"Weiss",axis='m',iprint=1)
      !
      !
      !
@@ -139,10 +132,10 @@ program lancED
      !
      !Perform the SELF-CONSISTENCY by fitting the new bath
      if(symOrbs)then
-        call ed_chi2_fitgf(comm,Weiss,bath,ispin=1,iorb=1)
+        call ed_chi2_fitgf(Weiss,bath,ispin=1,iorb=1)
         call ed_orb_equality_bath(bath,save=.true.)
      else
-        call ed_chi2_fitgf(comm,Weiss,bath,ispin=1)
+        call ed_chi2_fitgf(Weiss,bath,ispin=1)
      endif
      !
      !MIXING:
@@ -163,33 +156,15 @@ program lancED
   enddo
 
 
-  call dmft_gloc_realaxis(Ebands,Dbands,H0,Greal,Sreal)
-  call dmft_print_gf_realaxis(Greal,"Greal",iprint=1)
+  call dmft_get_gloc(Ebands,Dbands,H0,Greal,Sreal,axis='r')
+  call dmft_write_gf(Greal,"Greal",axis='r',iprint=1)
 
   call dmft_kinetic_energy(Ebands,Dbands,H0,Smats(1,1,:,:,:))
 
 
 
-  ! !>NEW
-  ! eps_len=10
-  ! allocate(wfreq(Lreal))
-  ! allocate(eps_array(eps_len))
-  ! wr = linspace(wini,wfin,Lreal)  !arbitrary domain, can change wini,wfin as you wish.
-  ! it=minloc(abs(wfreq));il=it(1)
-  ! eps_array = linspace(eps_start,eps_end,eps_len,.true.,.false.) 
-  ! do i=1,eps_len
-  !    eps = eps_array(i) 
-  !    write(*,*)"EPS=",eps
-  !    call ed_get_gimp(dcmplx(wfreq,eps),Hloc,Greal)
-  !    call dmft_print_function(Greal,"Greal_eps"//str(i,4),iprint=1,axis="real",zeta=wfreq)
-  !    write(201,*)eps,dimag(greal(:,:,:,:,il)),dreal(greal(:,:,:,:,il)),wfreq(il)
-  !    call ed_get_sigma(dcmplx(wfreq,eps),Hloc,Sreal)
-  !    call dmft_print_function(Sreal,"Sreal_eps"//str(i,4),iprint=1,axis="real",zeta=wfreq)
-  !    write(200,*)eps,dimag(sreal(:,:,:,:,il)),dreal(sreal(:,:,:,:,il)),wfreq(il)
-  ! enddo  ! MARY
-
   call finalize_MPI()
-  
+
 
 end program lancED
 
