@@ -4,6 +4,7 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
+#EXE=dmrg_hm_1d
 EXE=dmrg_spin_1d
 FC=mpif90
 PLAT=gnu

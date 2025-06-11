@@ -9,9 +9,12 @@ program hubbard_1d
   character(len=1)                               :: DMRGtype
   real(8)                                        :: ts(2),Mh(2),lambda
   type(site)                                     :: Dot
-  real(8),dimension(:,:),allocatable             :: Hloc,Hlr
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
   type(sparse_matrix),dimension(:),allocatable   :: dens,docc,sz,s2z,Mvec
+  type(hij_matrix)                               :: H
+  real(8),dimension(:,:),allocatable             :: T0,Tx
+  real(8),dimension(:,:,:,:),allocatable         :: Hij
+  real(8),dimension(:,:,:),allocatable           :: Hloc
 
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
   call parse_input_variable(ts,"TS",finput,default=(/( -0.5d0,i=1,2 )/),&
@@ -29,18 +32,25 @@ program hubbard_1d
   Nso = Nspin*Norb
 
 
-  !>Local Hamiltonian:
-  allocate(Hloc(Nso,Nso))
-  Hloc = diag([Mh(1:Norb),Mh(1:Norb)])
-  Dot  = electron_site(Hloc)
-
-  if(allocated(Hlr))deallocate(Hlr)
-  allocate(Hlr(Nso,Nso))
-  Hlr = diag([ts(1:Norb),ts(1:Norb)])
-  if(Norb==2)Hlr = Hlr + lambda*kron(pauli_0,pauli_x)
+  !>Setup the local H operator T0, and the Hopping matrix Tx
+  allocate(Tx(Nso,Nso),T0(Nso,Nso))
+  Tx = diag([ts(1:Norb),ts(1:Norb)])
+  if(Norb==2)Tx = Tx + lambda*kron(pauli_0,pauli_x)
+  T0 = diag([Mh(1:Norb),Mh(1:Norb)])
 
 
-  call init_dmrg(Hlr,ModelDot=Dot)
+  !> Build the 1d Hubbard model with Nso=2,4
+  !  use homogeneous .model1d procedure as T0,Tx are not site dependent
+  H = hij_matrix(Ldmrg,Norb=Norb,Nspin=Nspin)
+  call H%model1d(Tx=Tx, T0=T0, pbc=.false.)
+
+  !> Construct Lattice Hamiltonians: Hopping and Local terms:
+  Hloc = H%get_Hloc()
+  Hij  = H%get_Hij()
+  
+
+  call init_dmrg(Hij,Hloc,type='electron')
+  
 
   !Run DMRG algorithm
   select case(DMRGtype)

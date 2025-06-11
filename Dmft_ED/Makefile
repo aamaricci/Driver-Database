@@ -4,14 +4,14 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
-EXE=ed_hm_square_afm2
+EXE=ed_bhz_2d
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
 
 # LIBRARIES TO BE INCLUDED
 #$ LIB_TB: specify custom tight-binding library if any
-LIB_ED=edipack2
+LIB_ED=edipack
 #LIB_TB=honeytools
 
 
