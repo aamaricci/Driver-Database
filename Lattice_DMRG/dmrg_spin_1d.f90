@@ -25,14 +25,14 @@ program dmrg_spin_1d
 
   !Init DMRG
 
-  allocate(Dot(2*Ldmrg))
-  call mersenne_init(12345)
-  do i=1,2*Ldmrg
-     A      = Noise*mersenne()
-     Dot(i) = spin_site(sun=SUN,Hvec=A*Hvec)
-  enddo
-
-
+  ! allocate(Dot(2*Ldmrg))
+  ! call mersenne_init(12345)
+  ! do i=1,2*Ldmrg
+  !    A      = Noise*mersenne()
+  !    Dot(i) = spin_site(sun=SUN,Hvec=A*Hvec)
+  ! enddo
+  allocate(Dot(1))
+  Dot(1) = spin_site(sun=SUN,Hvec=Hvec)
   
   ! if(allocated(Hlr))deallocate(Hlr)
   ! allocate(Hlr(Nspin*Norb,Nspin*Norb))
@@ -53,13 +53,15 @@ program dmrg_spin_1d
   !Measure <Sz(i)>
   call Measure_DMRG(dot(1)%operators%op(key="S_z"),file="SzVSj")
 
+
+  
   !Measure <S(i).S(i+1)>
   unit=fopen("SiSjVSj"//str(label_DMRG('u')),append=.true.)
   call Init_measure_dmrg()
   do pos=1,Ldmrg-1
-     bSz = Build_Op_DMRG(dot(pos)%operators%op("S_z"),pos,set_basis=.true.)
-     bSp = Build_Op_DMRG(dot(pos)%operators%op("S_p"),pos,set_basis=.true.)
-     SiSj= get_SiSj(bSz,bSp,dot(pos+1)%operators%op("S_z"),dot(pos+1)%operators%op("S_p"))
+     bSz = Build_Op_DMRG(dot(1)%operators%op("S_z"),pos,set_basis=.true.)
+     bSp = Build_Op_DMRG(dot(1)%operators%op("S_p"),pos,set_basis=.true.)
+     SiSj= get_SiSj(bSz,bSp,dot(1)%operators%op("S_z"),dot(1)%operators%op("S_p"))
      SiSj= Advance_Corr_DMRG(SiSj,pos)
      write(unit,*)pos,Average_Op_DMRG(SiSj,pos)
   enddo

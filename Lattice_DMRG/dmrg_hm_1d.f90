@@ -8,49 +8,45 @@ program hubbard_1d
   integer                                        :: i,unit,iorb,ispin
   character(len=1)                               :: DMRGtype
   real(8)                                        :: ts(2),Mh(2),lambda
-  type(site)                                     :: Dot
+  type(site),dimension(:),allocatable            :: Dot
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
   type(sparse_matrix),dimension(:),allocatable   :: dens,docc,sz,s2z,Mvec
-  type(hij_matrix)                               :: H
-  real(8),dimension(:,:),allocatable             :: T0,Tx
-  real(8),dimension(:,:,:,:),allocatable         :: Hij
-  real(8),dimension(:,:,:),allocatable           :: Hloc
+  real(8),dimension(:,:),allocatable             :: Hloc,Hlr
 
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
+
   call parse_input_variable(ts,"TS",finput,default=(/( -0.5d0,i=1,2 )/),&
        comment="Hopping amplitudes")
+
   call parse_input_variable(Mh,"MH",finput,default=(/(0d0,i=1,2 )/),&
        comment="Crystal field splittings")
+
   call parse_input_variable(lambda,"LAMBDA",finput,default=0d0,&
        comment="off-diagonal amplitude")  
+
   call parse_input_variable(DMRGtype,"DMRGtype",finput,default="infinite",&
        comment="DMRG algorithm: Infinite, Finite")
+
   call read_input(finput)
 
 
   if(Norb>2)stop "This code is for Norb<=2. STOP"
   Nso = Nspin*Norb
 
+  Hloc = diag([Mh(1:Norb),Mh(1:Norb)])
 
-  !>Setup the local H operator T0, and the Hopping matrix Tx
-  allocate(Tx(Nso,Nso),T0(Nso,Nso))
-  Tx = diag([ts(1:Norb),ts(1:Norb)])
-  if(Norb==2)Tx = Tx + lambda*kron(pauli_0,pauli_x)
-  T0 = diag([Mh(1:Norb),Mh(1:Norb)])
+  allocate(Dot(1))
+  Dot = electron_site()
 
 
-  !> Build the 1d Hubbard model with Nso=2,4
-  !  use homogeneous .model1d procedure as T0,Tx are not site dependent
-  H = hij_matrix(Ldmrg,Norb=Norb,Nspin=Nspin)
-  call H%model1d(Tx=Tx, T0=T0, pbc=.false.)
+  if(allocated(Hlr))deallocate(Hlr)
+  allocate(Hlr(Nso,Nso))
+  Hlr = diag([ts(1:Norb),ts(1:Norb)])
+  if(Norb==2)Hlr = Hlr + lambda*kron(pauli_0,pauli_x)
 
-  !> Construct Lattice Hamiltonians: Hopping and Local terms:
-  Hloc = H%get_Hloc()
-  Hij  = H%get_Hij()
-  
 
-  call init_dmrg(Hij,Hloc,type='electron')
-  
+  call init_dmrg(Hlr,ModelDot=Dot)
+
 
   !Run DMRG algorithm
   select case(DMRGtype)
@@ -62,14 +58,12 @@ program hubbard_1d
   end select
 
 
-
-
   !Post-processing and measure quantities:
   !Measure <Sz(i)>
   allocate(C(Norb,Nspin),N(Norb,Nspin))
   do ispin=1,Nspin
      do iorb=1,Norb
-        C(iorb,ispin) = dot%operators%op(key="C"//dot%okey(iorb,ispin))
+        C(iorb,ispin) = dot(1)%operators%op(key="C"//dot(1)%okey(iorb,ispin))
         N(iorb,ispin) = matmul(C(iorb,ispin)%dgr(),C(iorb,ispin))
      enddo
   enddo
