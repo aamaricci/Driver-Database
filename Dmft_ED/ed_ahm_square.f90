@@ -1,5 +1,5 @@
 program ed_ahm_square
-  USE EDIPACK2
+  USE EDIPACK
   USE SCIFOR
   USE DMFT_TOOLS
   USE MPI
@@ -32,7 +32,6 @@ program ed_ahm_square
   master = get_Master_MPI(comm)
 
 
-
   call parse_cmd_variable(finput,"FINPUT",default='inputED.conf')
   call parse_input_variable(Nsym,"NSYM",finput,default=2,comment="2: diagonal SC; 3: diag+off-diag SC")
   call parse_input_variable(ts,"TS",finput,default=0.5d0,comment="hopping parameter")
@@ -60,7 +59,7 @@ program ed_ahm_square
   Nno   = Nambu*Nso
 
 
-  D = 8*ts
+  D = 4*ts
 
   !Allocate Dynamical Fields:
   allocate(Gmats(2,Nspin,Nspin,Norb,Norb,Lmats))
@@ -157,7 +156,7 @@ program ed_ahm_square
 
      !Perform the SELF-CONSISTENCY by fitting the new bath
      call ed_chi2_fitgf(Weiss(1,:,:,:,:,:),Weiss(2,:,:,:,:,:),bath,ispin=1)
-     if(bath_type=="normal".AND.phsym)call ed_ph_symmetrize_bath(bath)
+     if(phsym)call ed_ph_symmetrize_bath(bath)
 
 
 

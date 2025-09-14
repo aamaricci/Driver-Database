@@ -4,8 +4,9 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
-EXE=dmrg_hm_1d
-#EXE=dmrg_spin_1d
+#EXE=dmrg_hm_1d
+EXE=dmrg_spin_1d
+#EXE=kron_spin_1d
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
@@ -44,12 +45,11 @@ FFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
 DFLAG = -w -O0 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
 AFLAG = -w -O0 -p -g  -fbacktrace -fwhole-file -fcheck=all -fbounds-check -fsanitize=address -fdebug-aux-vars -Wall -Waliasing -Wsurprising -Wampersand -Warray-bounds -Wc-binding-type -Wcharacter-truncation -Wconversion -Wdo-subscript -Wfunction-elimination -Wimplicit-interface -Wimplicit-procedure -Wintrinsic-shadow -Wintrinsics-std -Wno-align-commons -Wno-overwrite-recursive -Wno-tabs -Wreal-q-constant -Wunderflow -Wunused-parameter -Wrealloc-lhs -Wrealloc-lhs-all -Wfrontend-loop-interchange -Wtarget-lifetime
 FPPSERIAL =-cpp -D_
-FPPMPI =-cpp -D_MPI	
+FPPMPI =-cpp -D_MPI
 endif
 
 
 ##$ REVISION SOFTWARE VARIABLES
-REV=$(shell git rev-parse HEAD)
 REV=$(shell git rev-parse HEAD)
 VER = 'character(len=41),parameter :: revision = "$(REV)"' > revision.inc
 
@@ -65,36 +65,6 @@ define colorecho
 endef
 
 
-
-all: FLAG:=${FFLAG} ${FPPMPI}
-all:
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
-	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	@echo "Done"
-	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
-
-debug: FLAG:=${DFLAG} ${FPPMPI}
-debug:
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
-	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	@echo "Done"
-	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
-
-
-aggressive: FLAG:=${AFLAG} ${FPPMPI}
-aggressive:
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
-	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	@echo "Done"
-	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
-
-
 serial: FLAG:=${FFLAG} ${FPPSERIAL}
 serial:
 	@echo ""
@@ -102,28 +72,43 @@ serial:
 	@echo ""
 	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
-	$(call colorecho,"created $(EXEC) in  $(DIREXE)", 1)
+	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
 
-serial_testing: FLAG:=${TFLAG} ${FPPSERIAL}
-serial_testing:
+
+
+debug: FLAG:=${DFLAG} ${FPPSERIAL} -D_DEBUG
+debug:
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	@echo "Done"
+	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/debug_$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(call colorecho,"created debug_$(EXE) in  $(DIREXE)", 1)
 
-serial_debug: FLAG:=${DFLAG} ${FPPSERIAL}
-serial_debug:
+
+mpi: FLAG:=${FFLAG} ${FPPMPI}
+mpi:
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/mpi_$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
+	$(call colorecho,"created mpi_$(EXE) in  $(DIREXE)", 1)
+
+mpi_debug: FLAG:=${DFLAG} ${FPPMPI} -D_DEBUG
+mpi_debug:
+	@echo ""
+	$(call colorecho,"compiling $(EXE).f90 ", 6)
+	@echo ""
+	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/mpi_debug_$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	@echo "Done"
+	$(call colorecho,"created mpi_debug_$(EXE) in  $(DIREXE)", 1)
+
+
 
 clean: 
 	@echo "Cleaning:"
 	@rm -f *.mod *.o *~
-	@rm -fv  $(DIREXE)/$(EXE)
+	@rm -fv  $(DIREXE)/*$(EXE)
 
 
 

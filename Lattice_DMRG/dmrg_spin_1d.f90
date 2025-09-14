@@ -1,16 +1,27 @@
 program dmrg_spin_1d
   USE SCIFOR
   USE DMRG
+#ifdef _MPI
+  USE MPI
+#endif
   implicit none
   character(len=64)                   :: finput
-  character(len=1)                    :: DMRGtype
   integer                             :: i,SUN,Unit,pos
-  real(8)                             :: Hvec(3),Noise,A
-  type(site),dimension(:),allocatable :: Dot
+  real(8)                             :: Hvec(3),Noise,R,Sij
+  type(site),dimension(:),allocatable :: MyDot
   type(sparse_matrix)                 :: bSz,bSp,SiSj
   real(8),dimension(:,:),allocatable  :: Hlr
+  integer                             :: irank,comm,rank,ierr
+  logical                             :: master
 
-
+#ifdef _MPI  
+  call init_MPI()
+  comm = MPI_COMM_WORLD
+  call StartMsg_MPI(comm)
+  rank = get_Rank_MPI(comm)
+  master = get_Master_MPI(comm)
+#endif
+  
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
   call parse_input_variable(SUN,"SUN",finput,default=2,&
        comment="Spin SU(N) value. 2=> spin 1/2, 3=> spin 1")
@@ -18,60 +29,59 @@ program dmrg_spin_1d
        comment="Magnetic field noise amplitude")
   call parse_input_variable(Hvec,"Hvec",finput,default=[0d0,0d0,0d0],&
        comment="Magnetic field direction")
-  call parse_input_variable(DMRGtype,"DMRGtype",finput,default="infinite",&
-       comment="DMRG algorithm: Infinite, Finite")
   call read_input(finput)
 
 
   !Init DMRG
 
-  ! allocate(Dot(2*Ldmrg))
+  ! allocate(MyDot(2*Ldmrg))
   ! call mersenne_init(12345)
   ! do i=1,2*Ldmrg
-  !    A      = Noise*mersenne()
-  !    Dot(i) = spin_site(sun=SUN,Hvec=A*Hvec)
+  !    R      = Noise*mersenne()
+  !    MyDot(i) = spin_site(sun=SUN,Hvec=R*Hvec)
   ! enddo
-  allocate(Dot(1))
-  Dot(1) = spin_site(sun=SUN,Hvec=Hvec)
-  
+  allocate(MyDot(1))
+  MyDot(1) = spin_site(sun=SUN,Hvec=Hvec)
+
   ! if(allocated(Hlr))deallocate(Hlr)
   ! allocate(Hlr(Nspin*Norb,Nspin*Norb))
   Hlr = diag([Jp,Jx/2d0])
-  call init_dmrg(Hlr,ModelDot=Dot)
+  call init_dmrg(Hlr,ModelDot=MyDot)
 
 
   !Run DMRG algorithm
-  select case(DMRGtype)
-  case default;stop "DMRGtype != [Infinite,Finite]"
-  case("i","I")
-     call infinite_DMRG()
-  case("f","F")
-     call finite_DMRG()
-  end select
+  call run_DMRG()
+
 
   !Post-processing and measure quantities:
   !Measure <Sz(i)>
-  call Measure_DMRG(dot(1)%operators%op(key="S_z"),file="SzVSj")
-
+  call Measure_DMRG(MyDot(1)%operators%op(key="S_z"),file="SzVSj")
 
   
+
+
   !Measure <S(i).S(i+1)>
-  unit=fopen("SiSjVSj"//str(label_DMRG('u')),append=.true.)
-  call Init_measure_dmrg()
+  if(master)unit=fopen("SiSjVSsite"//str(label_DMRG('u')),append=.true.)
+  call Init_measure_dmrg("SiSjVSsite")
   do pos=1,Ldmrg-1
-     bSz = Build_Op_DMRG(dot(1)%operators%op("S_z"),pos,set_basis=.true.)
-     bSp = Build_Op_DMRG(dot(1)%operators%op("S_p"),pos,set_basis=.true.)
-     SiSj= get_SiSj(bSz,bSp,dot(1)%operators%op("S_z"),dot(1)%operators%op("S_p"))
+     bSz = Build_Op_DMRG(MyDot(1)%operators%op("S_z"),pos,set_basis=.true.)
+     bSp = Build_Op_DMRG(MyDot(1)%operators%op("S_p"),pos,set_basis=.true.)
+     SiSj= get_SiSj(bSz,bSp,MyDot(1)%operators%op("S_z"),MyDot(1)%operators%op("S_p"))
      SiSj= Advance_Corr_DMRG(SiSj,pos)
-     write(unit,*)pos,Average_Op_DMRG(SiSj,pos)
+     Sij = Average_Op_DMRG(SiSj,pos)
+     if(master)write(unit,*)pos,Sij
+     if(master)call eta(pos,Ldmrg-1)
   enddo
   call End_measure_dmrg()
-  close(unit)
+  if(Master)close(unit)
 
 
   !Finalize DMRG
   call finalize_dmrg()
-
+#ifdef _MPI
+  call finalize_MPI()
+#endif
+  
 contains
 
 

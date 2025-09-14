@@ -1,6 +1,9 @@
 program testEDkron
   USE SCIFOR
   USE DMRG, id=>sp_eye
+#ifdef _MPI
+  USE MPI
+#endif
   implicit none
 
   integer                                      :: Nso
@@ -16,7 +19,18 @@ program testEDkron
   integer                                      :: m_sb
   real(8),dimension(:,:),allocatable           :: Evecs,Rho,Hloc
   real(8),dimension(:),allocatable             :: Evals
-  integer                                      :: Neigen=2
+  integer                                      :: Neigen=2,vecDim
+  integer                             :: irank,comm,rank,ierr
+  logical                             :: master
+
+#ifdef _MPI  
+  call init_MPI()
+  comm = MPI_COMM_WORLD
+  call StartMsg_MPI(comm)
+  rank = get_Rank_MPI(comm)
+  master = get_Master_MPI(comm)
+#endif
+
 
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
   call parse_input_variable(SUN,"SUN",finput,default=2,&
@@ -29,13 +43,13 @@ program testEDkron
 
   allocate(My_Dot(1))
   My_Dot(1) = spin_site(sun=SUN,Hvec=Hvec)
-  
+
 
   !Init DMRG
   Hlr = diag([Jp,Jx/2d0])
   call init_dmrg(Hlr,ModelDot=My_Dot)
 
-  
+
   target_qn = DMRG_qn
   !
 
@@ -54,7 +68,17 @@ program testEDkron
   call enlarge_block(left,My_Dot(1),grow='left')
   call enlarge_block(right,My_Dot(1),grow='right')
 
+  call enlarge_block(left,My_Dot(1),grow='left')
+  call enlarge_block(right,My_Dot(1),grow='right')
 
+  call enlarge_block(left,My_Dot(1),grow='left')
+  call enlarge_block(right,My_Dot(1),grow='right')
+
+  
+  call enlarge_block(left,My_Dot(1),grow='left')
+  call enlarge_block(right,My_Dot(1),grow='right')
+
+  
   !#################################
   !    Build SUPER-BLOCK Sector
   !#################################
@@ -70,47 +94,92 @@ program testEDkron
 
 
 
-  !Old Style solution:
-  print*,"Old style solution: spH --> H.v --> \psi"
-  print*,"######################################"
-  sparse_H = .true.
-  call sb_build_Hv()
-  allocate(Evals(Neigen))
-  allocate(Evecs(size(sb_states),Neigen))
-  call sp_eigh(spMatVec_sparse_main,evals,evecs,&
-       3*Neigen,&
-       500,&
-       tol=1d-12,&
-       iverbose=.false.)
-  do i=1,Neigen
-     print*,i,Evals(i)/2/left%length/Norb
-  enddo
-  deallocate(evals,evecs)
-  print*,""
-  !So it won't work anymore:
-  call spHsb%free()
+  ! !Old Style solution:
+  ! print*,"Old style solution: spH --> H.v --> \psi"
+  ! print*,"######################################"
+  ! sparse_H = .true.
+  ! call sb_build_Hv()
+  ! allocate(Evals(Neigen))
+  ! allocate(Evecs(size(sb_states),Neigen))
+  ! call sp_eigh(spMatVec_sparse_main,evals,evecs,&
+  !      3*Neigen,&
+  !      500,&
+  !      tol=1d-12,&
+  !      iverbose=.false.)
+  ! do i=1,Neigen
+  !    print*,i,Evals(i)/2/left%length/Norb
+  ! enddo
+  ! deallocate(evals,evecs)
+  ! print*,""
+  ! !So it won't work anymore:
+  ! call spHsb%free()
 
 
   !
   !Using _new to get energy:
-  print*,"Solving the same problem using new Method:"
-  print*,"######################################"
+
   sparse_H = .false.
   call sb_build_Hv()
   allocate(Evals(Neigen))
   allocate(Evecs(size(sb_states),Neigen))
-  call sp_eigh(spMatVec_direct_main,evals,evecs,&
+  ! vecDim = sb_vecDim_Hv()
+  !allocate(Evecs(vecDim,Neigen))
+  if(master)then
+     print*,"Solving the same problem serial Method:"
+     print*,"######################################"
+     call sp_eigh(spMatVec_direct_main,evals,evecs,&
+          3*Neigen,&
+          500,&
+          tol=1d-12,&
+          iverbose=.false.)
+     do i=1,Neigen
+        print*,i,Evals(i)/2/left%length/Norb
+        write(10,*)i,Evals(i)/2/left%length/Norb
+     enddo
+  endif
+  deallocate(evals,evecs)
+  call sb_delete_Hv()
+  print*,""
+
+
+
+  call wait(1000)
+  call Barrier_MPI()
+
+
+
+
+  sparse_H = .false.
+  call sb_build_Hv()
+  allocate(Evals(Neigen))
+  ! allocate(Evecs(size(sb_states),Neigen))
+  vecDim = sb_vecDim_Hv()
+  allocate(Evecs(vecDim,Neigen))
+  if(master)then
+     print*,"Solving the same problem MPI Method:"
+     print*,"######################################"
+  endif
+  call sp_eigh(MPI_COMM_WORLD,spMatVec_MPI_direct_main,evals,evecs,&
        3*Neigen,&
        500,&
        tol=1d-12,&
        iverbose=.false.)
-  do i=1,Neigen
-     print*,i,Evals(i)/2/left%length/Norb
-  enddo
+  if(master)then
+     do i=1,Neigen
+        print*,i,Evals(i)/2/left%length/Norb
+        write(11,*)i,Evals(i)/2/left%length/Norb
+     enddo
+  endif
   deallocate(evals,evecs)
+  call sb_delete_Hv()
   print*,""
 
 
+  !Finalize DMRG
+  call finalize_dmrg()
+#ifdef _MPI
+  call finalize_MPI()
+#endif
 
 
 
