@@ -5,8 +5,8 @@
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
 #EXE=dmrg_hm_1d
-EXE=dmrg_spin_1d
-#EXE=kron_spin_1d
+#EXE=dmrg_spin_1d
+EXE=dmrg_bhz_1d
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
@@ -28,12 +28,12 @@ GLOB_INC+=$(shell pkg-config --cflags ${LIB_TB})
 GLOB_LIB+=$(shell pkg-config --libs ${LIB_TB})
 endif
 
-GLOB_INC+=$(shell pkg-config --cflags dmft_tools scifor)
-GLOB_LIB+=$(shell pkg-config --libs   dmft_tools scifor)
+GLOB_INC+=$(shell pkg-config --cflags dmft_tools scifor)# libtcmalloc libprofiler)
+GLOB_LIB+=$(shell pkg-config --libs   dmft_tools scifor)# libtcmalloc libprofiler)
 
 
 ifeq ($(PLAT),intel)
-FFLAG=-O3 -ftz	
+FFLAG=-O1 -ftz
 DFLAG=-p -O0 -g
 AFLAG=-p -O0 -g -fpe0 -warn -warn errors -debug extended -traceback -check all,noarg_temp_created
 FPPSERIAL =-fpp -D_
@@ -41,7 +41,8 @@ FPPMPI =-fpp -D_
 endif
 
 ifeq ($(PLAT),gnu)
-FFLAG = -O3 -ffast-math -march=native -funroll-loops -ffree-line-length-none
+#FFLAG = -O1 -ffast-math -march=native -funroll-loops -ffree-line-length-none -g
+FFLAG = -O3 -funroll-loops -ffree-line-length-none 
 DFLAG = -w -O0 -p -g -fimplicit-none -Wsurprising  -Waliasing -fwhole-file -fcheck=all -pedantic -fbacktrace -ffree-line-length-none
 AFLAG = -w -O0 -p -g  -fbacktrace -fwhole-file -fcheck=all -fbounds-check -fsanitize=address -fdebug-aux-vars -Wall -Waliasing -Wsurprising -Wampersand -Warray-bounds -Wc-binding-type -Wcharacter-truncation -Wconversion -Wdo-subscript -Wfunction-elimination -Wimplicit-interface -Wimplicit-procedure -Wintrinsic-shadow -Wintrinsics-std -Wno-align-commons -Wno-overwrite-recursive -Wno-tabs -Wreal-q-constant -Wunderflow -Wunused-parameter -Wrealloc-lhs -Wrealloc-lhs-all -Wfrontend-loop-interchange -Wtarget-lifetime
 FPPSERIAL =-cpp -D_
@@ -90,7 +91,7 @@ mpi:
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/mpi_$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC)   -o $(DIREXE)/mpi_$(EXE) $(EXE).f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
 	$(call colorecho,"created mpi_$(EXE) in  $(DIREXE)", 1)
 

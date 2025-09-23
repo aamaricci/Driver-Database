@@ -14,8 +14,8 @@ program hubbard_1d
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
   type(sparse_matrix),dimension(:),allocatable   :: dens,docc,sz,s2z,Mvec
   real(8),dimension(:,:),allocatable             :: Hloc,Hlr
-  integer                             :: irank,comm,rank,ierr
-  logical                             :: master
+  integer                                        :: irank,comm,rank,ierr
+  logical                                        :: master
 
 #ifdef _MPI  
   call init_MPI()
@@ -28,16 +28,12 @@ program hubbard_1d
 
 
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
-
   call parse_input_variable(ts,"TS",finput,default=(/( -0.5d0,i=1,2 )/),&
        comment="Hopping amplitudes")
-
   call parse_input_variable(Mh,"MH",finput,default=(/(0d0,i=1,2 )/),&
        comment="Crystal field splittings")
-
   call parse_input_variable(lambda,"LAMBDA",finput,default=0d0,&
        comment="off-diagonal amplitude")  
-
   call read_input(finput)
 
 

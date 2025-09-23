@@ -1,25 +1,37 @@
 program BHZ_1d
   USE SCIFOR
   USE DMRG
+#ifdef _MPI
+  USE MPI
+#endif
   implicit none
 
   integer                                        :: Nso
   character(len=64)                              :: finput
   integer                                        :: i,unit,iorb,ispin
-  character(len=1)                               :: DMRGtype
   real(8)                                        :: eh,mh,lambda
   type(site)                                     :: Dot
   complex(8),dimension(4,4)                      :: Gamma5,Gamma1
   complex(8),dimension(:,:),allocatable          :: Hloc,Hlr
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
   type(sparse_matrix),dimension(:),allocatable   :: dens,docc,sz,s2z,Mvec
+  integer                                        :: irank,comm,rank,ierr
+  logical                                        :: master
+
+
+#ifdef _MPI  
+  call init_MPI()
+  comm = MPI_COMM_WORLD
+  call StartMsg_MPI(comm)
+  rank = get_Rank_MPI(comm)
+  master = get_Master_MPI(comm)
+#endif
+
 
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
   call parse_input_variable(eh,"EH",finput,default=1.d0)
   call parse_input_variable(mh,"MH",finput,default=0.5d0)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.3d0)
-  call parse_input_variable(DMRGtype,"DMRGtype",finput,default="infinite",&
-       comment="DMRG algorithm: Infinite, Finite")
   call read_input(finput)
 
 
@@ -43,19 +55,10 @@ program BHZ_1d
 
 
   !Init DMRG
-  call init_dmrg(Hlr,ModelDot=Dot)
+  call init_dmrg(Hlr,ModelDot=[Dot])
 
   !Run DMRG algorithm
-  select case(DMRGtype)
-  case default;stop "DMRGtype != [Infinite,Finite]"
-  case("i","I")
-     call infinite_DMRG()
-  case("f","F")
-     call finite_DMRG()
-  end select
-
-
-
+  call run_DMRG()
 
 
   !Post-processing and measure quantities:
@@ -81,6 +84,9 @@ program BHZ_1d
 
   !Finalize DMRG
   call finalize_dmrg()
+#ifdef _MPI
+  call finalize_MPI()
+#endif
 
 
 
