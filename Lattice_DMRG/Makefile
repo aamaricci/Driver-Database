@@ -4,9 +4,9 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
-#EXE=dmrg_hm_1d
+EXE=dmrg_hm_1d
 #EXE=dmrg_spin_1d
-EXE=dmrg_bhz_1d
+#EXE=dmrg_bhz_1d
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
@@ -28,8 +28,8 @@ GLOB_INC+=$(shell pkg-config --cflags ${LIB_TB})
 GLOB_LIB+=$(shell pkg-config --libs ${LIB_TB})
 endif
 
-GLOB_INC+=$(shell pkg-config --cflags dmft_tools scifor)# libtcmalloc libprofiler)
-GLOB_LIB+=$(shell pkg-config --libs   dmft_tools scifor)# libtcmalloc libprofiler)
+GLOB_INC+=$(shell pkg-config --cflags scifor)# libtcmalloc libprofiler)
+GLOB_LIB+=$(shell pkg-config --libs   scifor)# libtcmalloc libprofiler)
 
 
 ifeq ($(PLAT),intel)
