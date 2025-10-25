@@ -16,7 +16,7 @@ program BHZ_1d
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
   type(sparse_matrix),dimension(:),allocatable   :: dens,docc,sz,s2z,Mvec
   integer                                        :: irank,comm,rank,ierr
-  logical                                        :: master
+  logical                                        :: master,imeasure,irun
 
 
 #ifdef _MPI  
@@ -29,6 +29,10 @@ program BHZ_1d
 
 
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
+  call parse_input_variable(irun,"irun",finput,default=.true.,&
+       comment="Bool to run DMRG. F for post-processing")
+  call parse_input_variable(imeasure,"imeasure",finput,default=.true.,&
+       comment="Bool to perform measurements. T for post-processing.")
   call parse_input_variable(eh,"EH",finput,default=1.d0)
   call parse_input_variable(mh,"MH",finput,default=0.5d0)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.3d0)
@@ -58,28 +62,27 @@ program BHZ_1d
   call init_dmrg(Hlr,ModelDot=[Dot])
 
   !Run DMRG algorithm
-  call run_DMRG()
+  if(Irun)call run_DMRG()
 
-
-  !Post-processing and measure quantities:
-  allocate(C(Norb,Nspin),N(Norb,Nspin))
-  do ispin=1,Nspin
-     do iorb=1,Norb
-        C(iorb,ispin) = dot%operators%op(key="C"//dot%okey(iorb,ispin))
-        N(iorb,ispin) = matmul(C(iorb,ispin)%dgr(),C(iorb,ispin))
+  if(Imeasure)then
+     !Post-processing and measure quantities:
+     allocate(C(Norb,Nspin),N(Norb,Nspin))
+     do ispin=1,Nspin
+        do iorb=1,Norb
+           C(iorb,ispin) = dot%operators%op(key="C"//dot%okey(iorb,ispin))
+           N(iorb,ispin) = matmul(C(iorb,ispin)%dgr(),C(iorb,ispin))
+        enddo
      enddo
-  enddo
-  allocate(Mvec(3*Norb),sz(Norb))
-  do iorb=1,Norb
-     sz(iorb)          = n(iorb,1)-n(iorb,2)
-     Mvec(iorb)        = n(iorb,1)+n(iorb,2)
-     Mvec(iorb+Norb)   = matmul(n(iorb,1),n(iorb,2))
-     Mvec(iorb+2*Norb) = matmul(sz(iorb),sz(iorb))
-  enddo
-
-
-  call Measure_DMRG(Mvec,file="n_d_s2z_l1VSj", pos=arange(1,Ldmrg))
-
+     allocate(Mvec(3*Norb),sz(Norb))
+     do iorb=1,Norb
+        sz(iorb)          = n(iorb,1)-n(iorb,2)
+        Mvec(iorb)        = n(iorb,1)+n(iorb,2)
+        Mvec(iorb+Norb)   = matmul(n(iorb,1),n(iorb,2))
+        Mvec(iorb+2*Norb) = matmul(sz(iorb),sz(iorb))
+     enddo
+     !
+     call Measure_DMRG(Mvec,file="n_d_s2z_l1VSj", pos=arange(1,Ldmrg))
+  endif
 
 
   !Finalize DMRG

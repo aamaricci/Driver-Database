@@ -9,8 +9,8 @@ program hubbard_1d
   integer                                        :: Nso
   character(len=64)                              :: finput
   integer                                        :: i,unit,iorb,ispin
-  real(8)                                        :: ts(2),Mh(2),lambda
-  type(site),dimension(:),allocatable            :: MyDot
+  real(8)                                        :: ts(2),Mh,lambda
+  type(site)                                     :: MyDot
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
   type(sparse_matrix),dimension(:),allocatable   :: dens,docc,sz,s2z,Mvec
   real(8),dimension(:,:),allocatable             :: Hloc,Hlr
@@ -26,35 +26,42 @@ program hubbard_1d
 #endif
 
 
-
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
+  call parse_input_variable(imeasure,"imeasure",finput,default=.true.,&
+       comment="Bool to perform measurements. T for post-processing.")
   call parse_input_variable(ts,"TS",finput,default=(/( -0.5d0,i=1,2 )/),&
        comment="Hopping amplitudes")
-  call parse_input_variable(Mh,"MH",finput,default=(/(0d0,i=1,2 )/),&
+  call parse_input_variable(Mh,"MH",finput,default=0d0,&
        comment="Crystal field splittings")
   call parse_input_variable(lambda,"LAMBDA",finput,default=0d0,&
        comment="off-diagonal amplitude")
-  call parse_input_variable(imeasure,"imeasure",finput,default=.true.,&
-       comment="Bool to include measurements directly in the run.")
+
   call read_input(finput)
 
 
-  if(Norb>2)stop "This code is for Norb<=2. STOP"
   Nso = Nspin*Norb
+  allocate(Hloc(Nso,Nso))
+  allocate(Hlr(Nso,Nso))
+  select case(Norb)
+  case(1)
+     Hloc = Mh*pauli_z          !use it as a Zeeman field
+     Hlr  = diag([ts(1:Norb),ts(1:Norb)])
+  case(2)
+     Hloc = Mh*kron(pauli_0,pauli_z)
+     Hlr  = diag([ts(1:Norb),ts(1:Norb)]) &
+          + lambda*kron(pauli_0,pauli_x)
+  case default;stop "This code is for Norb<=2. STOP"
+  end select
+  if(master)then
+     call print_matrix(Hloc,"Hloc.dmrg")
+     call print_matrix(Hlr,"Hlr.dmrg")
+  endif
 
-  Hloc = diag([Mh(1:Norb),Mh(1:Norb)])
-
-  allocate(MyDot(1))
+  !Setup Dot basis:
   MyDot = electron_site()
 
-
-  if(allocated(Hlr))deallocate(Hlr)
-  allocate(Hlr(Nso,Nso))
-  Hlr = diag([ts(1:Norb),ts(1:Norb)])
-  if(Norb==2)Hlr = Hlr + lambda*kron(pauli_0,pauli_x)
-
-
-  call init_dmrg(Hlr,ModelDot=MyDot)
+  !Init DMRG
+  call init_dmrg(Hlr,ModelDot=[MyDot])
 
 
   !Run DMRG algorithm
@@ -67,7 +74,7 @@ program hubbard_1d
      allocate(C(Norb,Nspin),N(Norb,Nspin))
      do ispin=1,Nspin
         do iorb=1,Norb
-           C(iorb,ispin) = myDot(1)%operators%op(key="C"//myDot(1)%okey(iorb,ispin))
+           C(iorb,ispin) = myDot%operators%op(key="C"//myDot%okey(iorb,ispin))
            N(iorb,ispin) = matmul(C(iorb,ispin)%dgr(),C(iorb,ispin))
         enddo
      enddo

@@ -8,7 +8,7 @@ program dmrg_spin_1d
   character(len=64)                   :: finput
   integer                             :: i,SUN,Unit,pos
   real(8)                             :: Hvec(3),Noise,R,Sij
-  type(site),dimension(:),allocatable :: MyDot
+  type(site)                          :: MyDot
   type(sparse_matrix)                 :: bSz,bSp,SiSj
   real(8),dimension(:,:),allocatable  :: Hlr
   integer                             :: irank,comm,rank,ierr
@@ -23,32 +23,22 @@ program dmrg_spin_1d
 #endif
 
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
+  call parse_input_variable(imeasure,"imeasure",finput,default=.true.,&
+       comment="Bool to perform measurements. T for post-processing.")
   call parse_input_variable(SUN,"SUN",finput,default=2,&
        comment="Spin SU(N) value. 2=> spin 1/2, 3=> spin 1")
   call parse_input_variable(Noise,"NOISE",finput,default=0d0,&
        comment="Magnetic field noise amplitude")
   call parse_input_variable(Hvec,"Hvec",finput,default=[0d0,0d0,0d0],&
        comment="Magnetic field direction")
-  call parse_input_variable(imeasure,"imeasure",finput,default=.true.,&
-       comment="Bool to include measurements directly in the run.")
   call read_input(finput)
 
 
   !Init DMRG
 
-  ! allocate(MyDot(2*Ldmrg))
-  ! call mersenne_init(12345)
-  ! do i=1,2*Ldmrg
-  !    R      = Noise*mersenne()
-  !    MyDot(i) = spin_site(sun=SUN,Hvec=R*Hvec)
-  ! enddo
-  allocate(MyDot(1))
-  MyDot(1) = spin_site(sun=SUN,Hvec=Hvec)
-
-  ! if(allocated(Hlr))deallocate(Hlr)
-  ! allocate(Hlr(Nspin*Norb,Nspin*Norb))
-  Hlr = diag([Jp,Jx/2d0])
-  call init_dmrg(Hlr,ModelDot=MyDot)
+  MyDot = spin_site(sun=SUN,Hvec=Hvec)
+  Hlr   = diag([Jp,Jx/2d0])
+  call init_dmrg(Hlr,ModelDot=[MyDot])
 
 
   !Run DMRG algorithm
@@ -56,20 +46,19 @@ program dmrg_spin_1d
 
 
 
-
   if(imeasure)then
      !Post-processing and measure quantities:
      !Measure <Sz(i)>
-     call Measure_DMRG(MyDot(1)%operators%op(key="S_z"),file="SzVSj")
+     call Measure_DMRG(MyDot%operators%op(key="S_z"),file="SzVSj")
 
 
      !Measure <S(i).S(i+1)>
      if(master)unit=fopen("SiSjVSsite"//str(label_DMRG('u')),append=.true.)
      call Init_measure_dmrg("SiSjVSsite")
      do pos=1,Ldmrg-1
-        bSz = Build_Op_DMRG(MyDot(1)%operators%op("S_z"),pos,set_basis=.true.)
-        bSp = Build_Op_DMRG(MyDot(1)%operators%op("S_p"),pos,set_basis=.true.)
-        SiSj= get_SiSj(bSz,bSp,MyDot(1)%operators%op("S_z"),MyDot(1)%operators%op("S_p"))
+        bSz = Build_Op_DMRG(MyDot%operators%op("S_z"),pos,set_basis=.true.)
+        bSp = Build_Op_DMRG(MyDot%operators%op("S_p"),pos,set_basis=.true.)
+        SiSj= get_SiSj(bSz,bSp,MyDot%operators%op("S_z"),MyDot%operators%op("S_p"))
         SiSj= Advance_Corr_DMRG(SiSj,pos)
         Sij = Average_Op_DMRG(SiSj,pos)
         if(master)write(unit,*)pos,Sij
