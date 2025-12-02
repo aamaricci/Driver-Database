@@ -2,7 +2,7 @@
 program ed_hm_chain
   USE EDLAT
   USE SCIFOR
-  USE DMFT_TOOLS
+  ! USE DMFT_TOOLS
   USE MPI
   implicit none
   character(len=16)   :: finput
@@ -25,14 +25,14 @@ program ed_hm_chain
   call parse_input_variable(pbc,"PBC",finput,default=.true.,comment="T: PBC, F: OBC")
   call ed_read_input(trim(finput))
   !
-  beta = 1d0/temp
-  call add_ctrl_var(beta,"BETA")
-  call add_ctrl_var(Norb,"NORB")
-  call add_ctrl_var(Nspin,"Nspin")
-  call add_ctrl_var(xmu,"xmu")
-  call add_ctrl_var(wini,"wini")
-  call add_ctrl_var(wfin,"wfin")
-  call add_ctrl_var(eps,"eps")
+  ! beta = 1d0/temp
+  ! call add_ctrl_var(beta,"BETA")
+  ! call add_ctrl_var(Norb,"NORB")
+  ! call add_ctrl_var(Nspin,"Nspin")
+  ! call add_ctrl_var(xmu,"xmu")
+  ! call add_ctrl_var(wini,"wini")
+  ! call add_ctrl_var(wfin,"wfin")
+  ! call add_ctrl_var(eps,"eps")
 
   if(Nspin/=1.OR.Norb>2)stop "This driver is for 1d chain problem only: Norb<3, Nspin=1"
   if(any(Nsites(1:Norb)==0))stop "This driver is for 1d chain problem only: Nsites=[1,N]"

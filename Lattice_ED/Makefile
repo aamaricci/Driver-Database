@@ -4,7 +4,7 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
-EXE=ed_hm_2x2
+EXE=ed_hm_chain
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
@@ -23,10 +23,6 @@ GLOB_INC+=$(shell pkg-config --cflags ${LIB_ED})
 GLOB_LIB+=$(shell pkg-config --libs ${LIB_ED})
 endif
 
-ifdef LIB_TB
-GLOB_INC+=$(shell pkg-config --cflags ${LIB_TB})
-GLOB_LIB+=$(shell pkg-config --libs ${LIB_TB})
-endif
 
 GLOB_INC+=$(shell pkg-config --cflags dmft_tools scifor)
 GLOB_LIB+=$(shell pkg-config --libs   dmft_tools scifor)
