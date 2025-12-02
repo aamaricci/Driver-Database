@@ -3,7 +3,9 @@ program ed_hm_chain
   USE EDLAT
   USE SCIFOR
   ! USE DMFT_TOOLS
+#ifdef _MPI
   USE MPI
+#endif
   implicit none
   character(len=16)   :: finput
   real(8)             :: ts,t0,gamma,kx,ek,Icurrent,beta
@@ -12,14 +14,15 @@ program ed_hm_chain
   integer,allocatable :: Tord(:)
   logical             :: gflag,pbc,tbool
   integer             :: comm,rank
-  logical             :: master  
+  logical             :: master=.true.
   !
+#ifdef _MPI
   call init_MPI()
   comm = MPI_COMM_WORLD
   call StartMsg_MPI(comm)
   rank = get_Rank_MPI(comm)
   master = get_Master_MPI(comm)
-
+#endif
   call parse_cmd_variable(finput,"FINPUT",default='inputED.conf')
   call parse_input_variable(ts,"TS",finput,default=-1d0,comment="chain hopping parameter")
   call parse_input_variable(pbc,"PBC",finput,default=.true.,comment="T: PBC, F: OBC")
@@ -58,8 +61,9 @@ program ed_hm_chain
   call ed_init_solver()
   call ed_solve()
   !
+#ifdef _MPI
   call finalize_MPI()
-  !
+#endif
 
 
 end program ed_hm_chain

@@ -23,9 +23,11 @@ GLOB_INC+=$(shell pkg-config --cflags ${LIB_ED})
 GLOB_LIB+=$(shell pkg-config --libs ${LIB_ED})
 endif
 
+#GLOB_INC+=$(shell pkg-config --cflags dmft_tools)
+#GLOB_LIB+=$(shell pkg-config --libs   dmft_tools)
 
-GLOB_INC+=$(shell pkg-config --cflags dmft_tools scifor)
-GLOB_LIB+=$(shell pkg-config --libs   dmft_tools scifor)
+GLOB_INC+=$(shell pkg-config --cflags scifor)
+GLOB_LIB+=$(shell pkg-config --libs   scifor)
 
 
 ifeq ($(PLAT),intel)
