@@ -5,15 +5,16 @@ program dmrg_spin_1d
   USE MPI
 #endif
   implicit none
-  character(len=64)                   :: finput
-  integer                             :: i,SUN,Unit,pos
-  real(8)                             :: Hvec(3),Noise,R,Sij
-  type(site)                          :: MyDot
-  type(sparse_matrix)                 :: bSz,bSp,SiSj
-  real(8),dimension(:,:),allocatable  :: Hlr
-  integer                             :: irank,comm,rank,ierr
-  logical                             :: master,imeasure
-
+  character(len=64)                  :: finput
+  integer                            :: i,SUN,Unit,pos
+  real(8)                            :: Hvec(3),Noise,R,Sij
+  type(site)                         :: MyDot
+  type(sparse_matrix)                :: bSz,bSp,SiSj
+  real(8),dimension(:,:),allocatable :: Hlr
+  integer                            :: irank,comm,rank,ierr
+  logical                            :: master,imeasure
+  character(len=:),allocatable       :: key_Sz,key_Sp
+  
 #ifdef _MPI  
   call init_MPI()
   comm = MPI_COMM_WORLD
@@ -49,16 +50,19 @@ program dmrg_spin_1d
   if(imeasure)then
      !Post-processing and measure quantities:
      !Measure <Sz(i)>
-     call Measure_DMRG(MyDot%operators%op(key="S_z"),file="SzVSj")
+     key_Sz="S"//mydot%okey(0,1,ilink="n")
+     key_Sp="S"//mydot%okey(0,2,ilink="n")
+
+     call Measure_DMRG(MyDot%operators%op(key=key_Sz),file="SzVSj")
 
 
      !Measure <S(i).S(i+1)>
      if(master)unit=fopen("SiSjVSsite"//str(label_DMRG('u')),append=.true.)
      call Init_measure_dmrg("SiSjVSsite")
      do pos=1,Ldmrg-1
-        bSz = Build_Op_DMRG(MyDot%operators%op("S_z"),pos,set_basis=.true.)
-        bSp = Build_Op_DMRG(MyDot%operators%op("S_p"),pos,set_basis=.true.)
-        SiSj= get_SiSj(bSz,bSp,MyDot%operators%op("S_z"),MyDot%operators%op("S_p"))
+        bSz = Build_Op_DMRG(MyDot%operators%op(key_Sz),pos,set_basis=.true.)
+        bSp = Build_Op_DMRG(MyDot%operators%op(key_Sp),pos,set_basis=.true.)
+        SiSj= get_SiSj(bSz,bSp,MyDot%operators%op(key_Sz),MyDot%operators%op(key_Sp))
         SiSj= Advance_Corr_DMRG(SiSj,pos)
         Sij = Average_Op_DMRG(SiSj,pos)
         if(master)write(unit,*)pos,Sij

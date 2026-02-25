@@ -9,7 +9,7 @@ program hubbard_1d
   integer                                        :: Nso
   character(len=64)                              :: finput
   integer                                        :: i,unit,iorb,ispin,pos
-  real(8)                                        :: ts(2),Mh,lambda,val
+  real(8)                                        :: ts(2),Mh,lambda,val,K
   type(site)                                     :: MyDot
   type(sparse_matrix) :: P,Cl,Pl,Tij
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
@@ -17,7 +17,7 @@ program hubbard_1d
   real(8),dimension(:,:),allocatable             :: Hloc,Hlr
   integer                                        :: irank,comm,rank,ierr
   logical                                        :: master,imeasure
-
+  
 #ifdef _MPI  
   call init_MPI()
   comm = MPI_COMM_WORLD
@@ -72,41 +72,44 @@ program hubbard_1d
   if(imeasure)then
      !Post-processing and measure quantities:
      allocate(C(Norb,Nspin),N(Norb,Nspin))
-     P=myDot%operators%op(key="P")
+     P=myDot%operators%op(key="P"//myDot%okey(0,0,ilink='n'))
      do ispin=1,Nspin
         do iorb=1,Norb
-           C(iorb,ispin) = myDot%operators%op(key="C"//myDot%okey(iorb,ispin))
+           C(iorb,ispin) = myDot%operators%op(key="C"//myDot%okey(iorb,ispin,ilink='n'))
            N(iorb,ispin) = matmul(C(iorb,ispin)%dgr(),C(iorb,ispin))
         enddo
      enddo
      allocate(Mvec(4*Norb),sz(Norb))
      do iorb=1,Norb
-        sz(iorb)          = n(iorb,1)-n(iorb,2)
+        sz(iorb)          = 0.5d0*(n(iorb,1)-n(iorb,2))
         Mvec(iorb)        = n(iorb,1)+n(iorb,2)
         Mvec(iorb+Norb)   = matmul(n(iorb,1),n(iorb,2))
         Mvec(iorb+2*Norb) = matmul(sz(iorb),sz(iorb))
         Mvec(iorb+3*Norb) = matmul(C(iorb,1),C(iorb,2))
      enddo
      !
+     !
      call Measure_DMRG(Mvec,file="n_d_s2z_pairVSj", pos=arange(1,Ldmrg))
+     !
+
+     !Measure <K>
+     if(master)unit=fopen("K"//str(label_DMRG('u')),append=.true.)
+     call Init_measure_dmrg("K")
+     K = 0d0
+     do pos=1,Ldmrg-1
+        Pl  = Build_Op_DMRG(P,pos,set_basis=.true.)
+        Cl  = Build_Op_DMRG(C(1,1),pos,set_basis=.true.)
+        Tij = get_Tij()
+        Tij = Advance_Corr_DMRG(Tij,pos)
+        K   = K + Average_Op_DMRG(Tij,pos)
+        if(master)call eta(pos,Ldmrg-1)
+     enddo
+     if(master)write(unit,*)K
+     call End_measure_dmrg()
+     if(Master)close(unit)
 
 
-
-     ! !Measure <S(i).S(i+1)>
-     ! if(master)unit=fopen("PijVSsite"//str(label_DMRG('u')),append=.true.)
-     ! call Init_measure_dmrg("PijVSsite")
-     ! do pos=1,Ldmrg-1
-     !    Pl  = Build_Op_DMRG(P,pos,set_basis=.true.)
-     !    Cl  = Build_Op_DMRG(C(1,1),pos,set_basis=.true.)
-     !    Tij = get_Tij()
-     !    Tij = Advance_Corr_DMRG(Tij,pos)
-     !    val = Average_Op_DMRG(Tij,pos)
-     !    if(master)write(unit,*)pos,val
-     !    if(master)call eta(pos,Ldmrg-1)
-     ! enddo
-     ! call End_measure_dmrg()
-     ! if(Master)close(unit)
-
+     
   endif
 
 
@@ -116,12 +119,12 @@ program hubbard_1d
   call finalize_MPI()
 #endif
 
-contains
+  contains
 
-  function get_Tij() result(Tij)
-    type(sparse_matrix) :: Tij
-    Tij = matmul(Cl,Pl).x.C(1,2) 
-  end function get_Tij
+    function get_Tij() result(Tij)
+      type(sparse_matrix) :: Tij
+      Tij = 2d0*Hlr(1,1)*(matmul(Cl%dgr(),Pl).x.C(1,1))  + 2d0*Hlr(1,1)*(matmul(Pl,Cl).x.C(1,1)%dgr())
+    end function get_Tij
 
 
 end program hubbard_1d
