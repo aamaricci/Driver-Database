@@ -29,7 +29,7 @@ program ed_hm_square_afm2
   character(len=16)                             :: finput
   real(8)                                       :: ts,wmixing
   integer                                       :: Nktot,Nkx,Nkpath
-  logical                                       :: spinsym,neelsym
+  logical                                       :: spinsym,neelsym,MpiLanc
 
   integer                                       :: comm,rank
   logical                                       :: master
@@ -46,6 +46,7 @@ program ed_hm_square_afm2
   call parse_input_variable(nkx    , "NKX"    , finput, default=25)
   call parse_input_variable(nkpath , "NKPATH" , finput, default=500)
   call parse_input_variable(wmixing, "WMIXING", finput, default=0.75d0)
+  call parse_input_variable(MpiLanc, "MPILANC", finput, default=.false.)
   call parse_input_variable(spinsym, "SPINSYM", finput, default=.false.)
   call parse_input_variable(neelsym, "NEELSYM", finput, default=.true.)
 
@@ -120,7 +121,7 @@ program ed_hm_square_afm2
      if(master)call start_loop(iloop,nloop,"DMFT-loop")
      !
      !solve the impurity problem:
-     call ed_solve(Bath_ineq)
+     call ed_solve(Bath_ineq,mpi_lanc=MpiLanc)
      !
      !retrieve inequivalent self-energies:
      call ed_get_sigma(Smats_ineq,Nineq,axis='m')
