@@ -1,6 +1,6 @@
 !   Solve the Hubbard model with AFM 2 atoms in the basis 
 program ed_hm_square_afm2
-  USE EDIPACK2
+  USE EDIPACK
   USE EDIPACK2INEQ
   USE SCIFOR
   USE DMFT_TOOLS
@@ -49,6 +49,7 @@ program ed_hm_square_afm2
   call parse_input_variable(spinsym, "SPINSYM", finput, default=.false.)
   call parse_input_variable(neelsym, "NEELSYM", finput, default=.true.)
 
+  
   call ed_read_input(trim(finput))
 
 
