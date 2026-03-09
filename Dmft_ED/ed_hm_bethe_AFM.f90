@@ -3,6 +3,7 @@ program lancED
   USE SCIFOR
   USE DMFT_TOOLS
   USE MPI
+  !
   implicit none
   integer                                       :: iloop,Le,Nso,iorb,ispin,ilat,jorb,jspin,io,jo
   logical                                       :: converged
@@ -30,8 +31,9 @@ program lancED
   !
   complex(8),allocatable,dimension(:,:,:) :: Self
   !
-  integer                                       :: comm,rank,msize
+  integer                                       :: comm,rank,msize,ierr
   logical                                       :: master
+  logical :: getK
 
   call init_MPI()
   comm = MPI_COMM_WORLD
@@ -45,6 +47,7 @@ program lancED
   call parse_input_variable(Wbethe,"WBETHE",finput,default=[1d0,1d0,1d0,1d0,1d0])
   call parse_input_variable(Dbethe,"DBETHE",finput,default=[0d0,0d0,0d0,0d0,0d0])
   call parse_input_variable(wmixing,"WMIXING",finput,default=0.5d0)
+  call parse_input_variable(getK,"GETK",finput,default=.false.)
   !
   call ed_read_input(trim(finput))
 
@@ -63,6 +66,36 @@ program lancED
   Nineq=1                       !only one is inequivalent (B=-A)
   Nso=Nspin*Norb
   Nlso=Nlat*Nso
+
+
+
+  if(getK)then
+     allocate(Self(Nlso,Nlso,Lmats));Self=zero
+     call read_array("Smats",Self)
+     deallocate(Ebands,Dbands,Wband,H0,de)
+     allocate(Ebands(Nlso,Le))
+     allocate(Dbands(Nlso,Le))
+     allocate(Wband(Nlso))
+     allocate(H0(Nlso))
+     allocate(de(Nlso))
+     do ilat=1,Nlat
+        do ispin=1,Nspin
+           do iorb=1,Norb
+              io = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin           
+              Wband(io) = Wbethe(iorb)         !band width
+              H0(io)    = Dbethe(iorb)         !Local energy
+              Ebands(io,:) = linspace(-Wband(io),Wband(io),Le,mesh=de(io)) !dispersion
+              Dbands(io,:) = dens_bethe(Ebands(io,:),Wband(io))*de(io)     !DOS
+           enddo
+        enddo
+     enddo
+     !
+     call dmft_kinetic_energy_Bethe(Ebands,Dbands,H0,Self)
+     !
+     call finalize_MPI(comm)
+  end if
+
+
 
   allocate(Ebands(Nso,Le))
   allocate(Dbands(Nso,Le))
@@ -143,37 +176,18 @@ program lancED
 
 
   call dmft_write_gf(Greal,"Gloc",axis='r',iprint=4)
-  call dmft_write_gf(Weiss,"Weiss",axis='m',iprint=4)
+
+
   allocate(Self(Nlso,Nlso,Lmats));Self=zero
   do concurrent(ilat=1:Nlat,ispin=1:Nspin,jspin=1:Nspin,iorb=1:Norb,jorb=1:Norb)
      io = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin
      jo = jorb + (jspin-1)*Norb + (ilat-1)*Norb*Nspin
      Self(io,jo,:) = Smats(ilat,ispin,jspin,iorb,jorb,:)
   enddo
-  call save_array("Smats",Self)
+  if(master)call save_array("Smats",Self)
+  deallocate(Self)
 
-
-  ! deallocate(Ebands,Dbands,Wband,H0,de)
-  ! allocate(Ebands(Nlso,Le))
-  ! allocate(Dbands(Nlso,Le))
-  ! allocate(Wband(Nlso))
-  ! allocate(H0(Nlso))
-  ! allocate(de(Nlso))
-
-  ! do ilat=1,Nlat
-  !    do ispin=1,Nspin
-  !       do iorb=1,Norb
-  !          io = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin           
-  !          Wband(io) = Wbethe(iorb)         !band width
-  !          H0(io)    = Dbethe(iorb)         !Local energy
-  !          Ebands(io,:) = linspace(-Wband(io),Wband(io),Le,mesh=de(io)) !dispersion
-  !          Dbands(io,:) = dens_bethe(Ebands(io,:),Wband(io))*de(io)     !DOS
-  !       enddo
-  !    enddo
-  ! enddo
-  ! !
-  ! call dmft_kinetic_energy_Bethe(Ebands,Dbands,H0,Self)
-
+  call Barrier_MPI()
   call finalize_MPI()
 
 contains
