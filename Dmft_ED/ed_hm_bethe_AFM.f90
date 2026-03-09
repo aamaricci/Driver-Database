@@ -144,32 +144,35 @@ program lancED
 
   call dmft_write_gf(Greal,"Gloc",axis='r',iprint=4)
   call dmft_write_gf(Weiss,"Weiss",axis='m',iprint=4)
-
   allocate(Self(Nlso,Nlso,Lmats));Self=zero
-  deallocate(Ebands,Dbands,Wband,H0,de)
-  allocate(Ebands(Nlso,Le))
-  allocate(Dbands(Nlso,Le))
-  allocate(Wband(Nlso))
-  allocate(H0(Nlso))
-  allocate(de(Nlso))
   do concurrent(ilat=1:Nlat,ispin=1:Nspin,jspin=1:Nspin,iorb=1:Norb,jorb=1:Norb)
      io = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin
      jo = jorb + (jspin-1)*Norb + (ilat-1)*Norb*Nspin
      Self(io,jo,:) = Smats(ilat,ispin,jspin,iorb,jorb,:)
   enddo
-  do ilat=1,Nlat
-     do ispin=1,Nspin
-        do iorb=1,Norb
-           io = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin           
-           Wband(io) = Wbethe(iorb)         !band width
-           H0(io)    = Dbethe(iorb)         !Local energy
-           Ebands(io,:) = linspace(-Wband(io),Wband(io),Le,mesh=de(io)) !dispersion
-           Dbands(io,:) = dens_bethe(Ebands(io,:),Wband(io))*de(io)     !DOS
-        enddo
-     enddo
-  enddo
-  !
-  call dmft_kinetic_energy_Bethe(Ebands,Dbands,H0,Self)
+  call save_array("Smats",Self)
+
+
+  ! deallocate(Ebands,Dbands,Wband,H0,de)
+  ! allocate(Ebands(Nlso,Le))
+  ! allocate(Dbands(Nlso,Le))
+  ! allocate(Wband(Nlso))
+  ! allocate(H0(Nlso))
+  ! allocate(de(Nlso))
+
+  ! do ilat=1,Nlat
+  !    do ispin=1,Nspin
+  !       do iorb=1,Norb
+  !          io = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin           
+  !          Wband(io) = Wbethe(iorb)         !band width
+  !          H0(io)    = Dbethe(iorb)         !Local energy
+  !          Ebands(io,:) = linspace(-Wband(io),Wband(io),Le,mesh=de(io)) !dispersion
+  !          Dbands(io,:) = dens_bethe(Ebands(io,:),Wband(io))*de(io)     !DOS
+  !       enddo
+  !    enddo
+  ! enddo
+  ! !
+  ! call dmft_kinetic_energy_Bethe(Ebands,Dbands,H0,Self)
 
   call finalize_MPI()
 
@@ -261,7 +264,6 @@ contains
     real(8),dimension(Nlso),intent(in)    :: Hloc    ![Nlat*Nspin*Norb]
     complex(8),dimension(Nlso,Nlso,Le)    :: Sigma   ![Nlat*Nspin*Norb][Nlat*Nspin*Norb][L]
     !
-    integer                               :: Lk,Liw
     integer                               :: i,ik,iso
     integer                               :: ilat,unit
     real(8),dimension(Nlso,Nlso)          :: Sigma_HF
@@ -287,18 +289,12 @@ contains
     !
     !
     !
-    Lk   = size(Ebands,2)
-    Liw  = size(Sigma,3)
-    !
-    !Testing:
-    call assert_shape(Sigma,[Nlso,Nlso,Liw],"dmft_kinetic_energy_normal_Nso_dos","Sigma")
-    !
     !Allocate and setup the Matsubara freq.
-    if(allocated(wm))deallocate(wm);allocate(wm(Liw))
-    wm = pi/beta*dble(2*arange(1,Liw)-1)
+    if(allocated(wm))deallocate(wm);allocate(wm(Lmats))
+    wm = pi/beta*dble(2*arange(1,Lmats)-1)
     !
     !Get HF part of the self-energy
-    Sigma_HF = dreal(Sigma(:,:,Liw))
+    Sigma_HF = dreal(Sigma(:,:,Lmats))
     !
     !
     if(master)write(*,"(A)") "Kinetic energy computation"
@@ -314,11 +310,11 @@ contains
     Lail1=0d0
     !
     !Get principal part: Tr[ Hk.(Gk-Tk) ]
-    do ik=1,Lk
+    do ik=1,Le
        do iso=1,Nlso
           Ak = Ebands(iso,ik)
           Bk =-Ebands(iso,ik) - Sigma_HF(iso,iso)
-          do i=1+rank,Liw,msize
+          do i=1+rank,Lmats,msize
              Gk = (xi*wm(i)+xmu) - Sigma(iso,iso,i) - Ebands(iso,ik) - Hloc(iso)
              Gk = 1d0/Gk
              Tk = 1d0/(xi*wm(i)) - Bk/(xi*wm(i))**2
@@ -328,17 +324,17 @@ contains
              Hltmp(iso) = Hltmp(iso) + Dbands(iso,ik)*Dk
           enddo
        enddo
-       if(master)call eta(ik,Lk)
+       if(master)call eta(ik,Le)
     enddo
+    if(master)call stop_timer()
     call AllReduce_MPI(MPI_COMM_WORLD,H0tmp,H0)
     call AllReduce_MPI(MPI_COMM_WORLD,Hltmp,Hl)
-    if(master)call stop_timer()
     spin_degeneracy=3d0-Nspin     !2 if Nspin=1, 1 if Nspin=2
     H0=H0/beta*2*spin_degeneracy
     Hl=Hl/beta*2*spin_degeneracy
     !
     !get tail subtracted contribution: Tr[ Hk.Tk ]
-    do ik=1,Lk
+    do ik=1,Le
        do iso=1,Nlso
           Ak = Ebands(iso,ik)
           Bk =-Ebands(iso,ik) - Sigma_HF(iso,iso)
@@ -392,7 +388,7 @@ contains
 
 
 
-end program
+end program lancED
 
   
 
