@@ -62,7 +62,7 @@ program lancED
   Nineq=1                       !only one is inequivalent (B=-A)
   Nso=Nspin*Norb
   Nlso=Nlat*Nso
-  
+
   allocate(Ebands(Nso,Le))
   allocate(Dbands(Nso,Le))
   allocate(Wband(Nso))
@@ -98,8 +98,8 @@ program lancED
   allocate(Bath(Nb))
   allocate(Bath_prev(Nb))
   call ed_init_solver(Bath)
-  !call ed_break_symmetry_bath(Bath,sb_field,1d0)
-
+  call ed_break_symmetry_bath(Bath,sb_field,1d0)
+  !
   call ed_set_hloc(Hloc)
 
   !DMFT loop
@@ -124,8 +124,7 @@ program lancED
      !Evaluate Gloc and update Weiss, all at once here:
      call get_delta_bethe()
      call dmft_write_gf(Gmats,"Gloc",axis='m',iprint=4)
-     call dmft_write_gf(Greal,"Gloc",axis='r',iprint=4)
-     call dmft_write_gf(Weiss,"Weiss",axis='m',iprint=4)
+
      !
      !Perform the SELF-CONSISTENCY by fitting the new bath, only A sublattice needs to be fitted.
      call ed_chi2_fitgf(Weiss(1,:,:,:,:,:),bath,ispin=1)
@@ -142,6 +141,9 @@ program lancED
   call ed_finalize_solver()
 
 
+  call dmft_write_gf(Greal,"Gloc",axis='r',iprint=4)
+  call dmft_write_gf(Weiss,"Weiss",axis='m',iprint=4)
+
   allocate(Self(Nlso,Nlso,Lmats));Self=zero
   deallocate(Ebands,Dbands,Wband,H0,de)
   allocate(Ebands(Nlso,Le))
@@ -153,7 +155,7 @@ program lancED
      io = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin
      jo = jorb + (jspin-1)*Norb + (ilat-1)*Norb*Nspin
      Self(io,jo,:) = Smats(ilat,ispin,jspin,iorb,jorb,:)
-  enddo  
+  enddo
   do ilat=1,Nlat
      do ispin=1,Nspin
         do iorb=1,Norb
@@ -164,13 +166,14 @@ program lancED
            Dbands(io,:) = dens_bethe(Ebands(io,:),Wband(io))*de(io)     !DOS
         enddo
      enddo
-  enddo  
+  enddo
   !
   call dmft_kinetic_energy_Bethe(Ebands,Dbands,H0,Self)
 
-
   call finalize_MPI()
 
+  stop
+  
 contains
 
 
@@ -253,37 +256,37 @@ contains
 
 
 
-  subroutine dmft_kinetic_energy_Bethe(Ebands,Dbands,Hloc,Sigma,Ekin,Eloc)
-    real(8),dimension(:,:),intent(in)                :: Ebands    ![Nlat*Nspin*Norb][Lk]
-    real(8),dimension(:,:),intent(in)                :: Dbands    ![Nlat*Nspin*Norb][Lk]Lk]
-    real(8),dimension(size(Ebands,1)),intent(in)     :: Hloc    ![Nlat*Nspin*Norb]
-    complex(8),dimension(:,:,:)                      :: Sigma   ![Nlat*Nspin*Norb][Nlat*Nspin*Norb][L]
-    real(8),dimension(size(Ebands,1)),optional       :: Ekin,Eloc
+  subroutine dmft_kinetic_energy_Bethe(Ebands,Dbands,Hloc,Sigma)
+    real(8),dimension(Nlso,Le),intent(in) :: Ebands    ![Nlat*Nspin*Norb][Lk]
+    real(8),dimension(Nlso,Le),intent(in) :: Dbands    ![Nlat*Nspin*Norb][Lk]Lk]
+    real(8),dimension(Nlso),intent(in)    :: Hloc    ![Nlat*Nspin*Norb]
+    complex(8),dimension(Nlso,Nlso,Le)    :: Sigma   ![Nlat*Nspin*Norb][Nlat*Nspin*Norb][L]
     !
-    integer                                          :: Lk,Nlso,Liw
-    integer                                          :: i,ik,iso
+    integer                               :: Lk,Liw
+    integer                               :: i,ik,iso
+    integer                               :: ilat,unit
+    real(8),dimension(Nlso,Nlso)          :: Sigma_HF
     !
-    real(8),dimension(size(Ebands,1),size(Ebands,1)) :: Sigma_HF
+    complex(8)                            :: Ak,Bk,Ck,Dk
+    complex(8)                            :: Gk,Tk
     !
-    complex(8)                                       :: Ak,Bk,Ck,Dk
-    complex(8)                                       :: Gk,Tk
+    complex(8),dimension(:,:),allocatable :: Ak_,Bk_,Ck_,Dk_
+    complex(8),dimension(:,:),allocatable :: Gk_,Tk_
     !
-    complex(8),dimension(:,:),allocatable            :: Ak_,Bk_,Ck_,Dk_
-    complex(8),dimension(:,:),allocatable            :: Gk_,Tk_
+    real(8),dimension(Nlso)               :: Tail0,Tail1
+    real(8),dimension(Nlso)               :: Lail0,Lail1
+    real(8)                               :: spin_degeneracy
     !
-    real(8),dimension(size(Ebands,1))                :: Tail0,Tail1
-    real(8),dimension(size(Ebands,1))                :: Lail0,Lail1
-    real(8)                                          :: spin_degeneracy
+    real(8),dimension(Nlso)               :: H0,Hl
+    real(8),dimension(Nlso)               :: H0tmp,Hltmp
     !
-    real(8),dimension(size(Ebands,1))                :: H0,Hl
-    real(8),dimension(size(Ebands,1))                :: H0tmp,Hltmp
+    real(8),dimension(Nlso)               :: Ekin_,Eloc_
+    real(8),dimension(Nlat,Nso)           :: Ekin,Eloc
     !
-    real(8),dimension(size(Ebands,1))                :: Ekin_,Eloc_
-    !
-    real(8),dimension(:),allocatable                 :: wm
-    logical                                          :: dos_diag !1. T / 2. F
-    integer                                       :: mpi_rank,mpi_size
-    logical                                       :: mpi_master
+    real(8),dimension(:),allocatable      :: wm
+    logical                               :: dos_diag !1. T / 2. F
+    integer                               :: mpi_rank,mpi_size
+    logical                               :: mpi_master
     !
     !
     !MPI setup:
@@ -292,7 +295,6 @@ contains
     mpi_master= get_master_MPI()
     !
     !
-    Nlso = size(Ebands,1)
     Lk   = size(Ebands,2)
     Liw  = size(Sigma,3)
     !
@@ -364,50 +366,7 @@ contains
     Ekin_=H0+Tail0+Tail1
     Eloc_=Hl+Lail0+Lail1
     !
-    if(mpi_master)call write_kinetic_value(Ekin_,Eloc_,Nlat,Nspin*Norb)
-    if(present(Ekin))Ekin=Ekin_
-    if(present(Eloc))Eloc=Eloc_
-    !
-    deallocate(wm)
-  end subroutine dmft_kinetic_energy_Bethe
-
-
-
-
-  !+-------------------------------------------------------------------+
-  !PURPOSE  : Write energies to file
-  !+-------------------------------------------------------------------+
-  subroutine write_kinetic_value(Ekin,Eloc,Nlat,Nso)
-    real(8),dimension(:)               :: Ekin
-    real(8),dimension(size(Ekin))      :: Eloc
-    real(8),dimension(:,:),allocatable :: Ekin_,Eloc_
-    integer,optional                   :: Nlat,Nso
-    integer                            :: Nlso
-    integer                            :: i,iso,ilat,unit
-    if(.not.present(Nlat))then
-       !
-       Nlso = size(Ekin)
-       !
-       unit = free_unit()
-       open(unit,file="dmft_kinetic_energy.info")
-       write(unit,"(A1,90(A14,1X))")"#",&
-            str(1)//"<K>",str(2)//"<Eloc>",&
-            (str(2+i)//"<K"//str(i)//">",i=1,Nlso),&
-            (str(2+Nlso+i)//"<Eloc"//str(i)//">",i=1,Nlso)
-       close(unit)
-       !
-       unit = free_unit()
-       open(unit,file="dmft_kinetic_energy.dat")
-       write(unit,"(90F15.9)")sum(Ekin),sum(Eloc),(Ekin(i),i=1,Nlso),(Eloc(i),i=1,Nlso)
-       close(unit)
-       !
-    else
-       !
-       if(.not.present(Nso))stop "ERROR write_kinetic_value: Nlat present but Nso not present."
-       !
-       Nlso = size(Ekin)
-       if(Nlso /= Nlat*Nso)stop "Error write_kinetic_value: Nlso != Nlat*Nso" 
-       !
+    if(mpi_master)then
        unit = free_unit()
        open(unit,file="dmft_kinetic_energy.info")
        write(unit,"(A1,90(A14,1X))")"#",&
@@ -417,30 +376,31 @@ contains
        close(unit)
        !
        !
-       allocate(Ekin_(Nlat,Nso))
-       allocate(Eloc_(Nlat,Nso))
        do ilat=1,Nlat
           do iso=1,Nso
              i = iso + (ilat-1)*Nso
-             Ekin_(ilat,iso) = Ekin(i)
-             Eloc_(ilat,iso) = Eloc(i)
+             Ekin(ilat,iso) = Ekin_(i)
+             Eloc(ilat,iso) = Eloc_(i)
           enddo
        enddo
        !
        unit = free_unit()
        open(unit,file="dmft_kinetic_energy.dat")       
        do ilat=1,Nlat
-          write(unit,"(100000F15.9)")sum(Ekin_(ilat,:)),sum(Eloc_(ilat,:)),&
-               (Ekin_(ilat,i),i=1,Nso),&
-               (Eloc_(ilat,i),i=1,Nso)
+          write(unit,"(100000F15.9)")sum(Ekin(ilat,:)),sum(Eloc(ilat,:)),&
+               (Ekin(ilat,i),i=1,Nso),&
+               (Eloc(ilat,i),i=1,Nso)
        enddo
-       write(unit,"(90F15.9)")sum(Ekin_)/Nlat,sum(Eloc_)/Nlat
+       write(unit,"(90F15.9)")sum(Ekin)/Nlat,sum(Eloc)/Nlat
        close(unit)
     endif
-  end subroutine write_kinetic_value
+    !
+    deallocate(wm)
+  end subroutine dmft_kinetic_energy_Bethe
 
 
-end program lancED
+
+end program
 
   
 
