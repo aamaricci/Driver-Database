@@ -30,13 +30,14 @@ program lancED
   !
   complex(8),allocatable,dimension(:,:,:) :: Self
   !
-  integer                                       :: comm,rank
+  integer                                       :: comm,rank,msize
   logical                                       :: master
 
   call init_MPI()
   comm = MPI_COMM_WORLD
   call StartMsg_MPI(comm)
   rank = get_Rank_MPI(comm)
+  msize= get_Size_MPI(comm)
   master = get_Master_MPI(comm)
 
   call parse_cmd_variable(finput,"FINPUT",default='inputED.conf')
@@ -172,8 +173,6 @@ program lancED
 
   call finalize_MPI()
 
-  stop
-  
 contains
 
 
@@ -285,14 +284,7 @@ contains
     !
     real(8),dimension(:),allocatable      :: wm
     logical                               :: dos_diag !1. T / 2. F
-    integer                               :: mpi_rank,mpi_size
-    logical                               :: mpi_master
     !
-    !
-    !MPI setup:
-    mpi_size  = get_size_MPI()
-    mpi_rank =  get_rank_MPI()
-    mpi_master= get_master_MPI()
     !
     !
     Lk   = size(Ebands,2)
@@ -309,8 +301,8 @@ contains
     Sigma_HF = dreal(Sigma(:,:,Liw))
     !
     !
-    if(mpi_master)write(*,"(A)") "Kinetic energy computation"
-    if(mpi_master)call start_timer()
+    if(master)write(*,"(A)") "Kinetic energy computation"
+    if(master)call start_timer()
     H0=0d0
     Hl=0d0
     H0tmp= 0d0
@@ -326,7 +318,7 @@ contains
        do iso=1,Nlso
           Ak = Ebands(iso,ik)
           Bk =-Ebands(iso,ik) - Sigma_HF(iso,iso)
-          do i=1+mpi_rank,Liw,mpi_size
+          do i=1+rank,Liw,msize
              Gk = (xi*wm(i)+xmu) - Sigma(iso,iso,i) - Ebands(iso,ik) - Hloc(iso)
              Gk = 1d0/Gk
              Tk = 1d0/(xi*wm(i)) - Bk/(xi*wm(i))**2
@@ -336,11 +328,11 @@ contains
              Hltmp(iso) = Hltmp(iso) + Dbands(iso,ik)*Dk
           enddo
        enddo
-       if(mpi_master)call eta(ik,Lk)
+       if(master)call eta(ik,Lk)
     enddo
     call AllReduce_MPI(MPI_COMM_WORLD,H0tmp,H0)
     call AllReduce_MPI(MPI_COMM_WORLD,Hltmp,Hl)
-    if(mpi_master)call stop_timer()
+    if(master)call stop_timer()
     spin_degeneracy=3d0-Nspin     !2 if Nspin=1, 1 if Nspin=2
     H0=H0/beta*2*spin_degeneracy
     Hl=Hl/beta*2*spin_degeneracy
@@ -366,7 +358,7 @@ contains
     Ekin_=H0+Tail0+Tail1
     Eloc_=Hl+Lail0+Lail1
     !
-    if(mpi_master)then
+    if(master)then
        unit = free_unit()
        open(unit,file="dmft_kinetic_energy.info")
        write(unit,"(A1,90(A14,1X))")"#",&
