@@ -98,7 +98,7 @@ program lancED
   allocate(Bath(Nb))
   allocate(Bath_prev(Nb))
   call ed_init_solver(Bath)
-  call ed_break_symmetry_bath(Bath,sb_field,1d0)
+  !call ed_break_symmetry_bath(Bath,sb_field,1d0)
 
   call ed_set_hloc(Hloc)
 
