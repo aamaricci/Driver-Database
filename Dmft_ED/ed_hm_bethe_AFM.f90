@@ -71,8 +71,8 @@ program lancED
 
   if(getK)then
      allocate(Self(Nlso,Nlso,Lmats));Self=zero
-     call read_array("Smats",Self)
-     deallocate(Ebands,Dbands,Wband,H0,de)
+     if(master)call read_array("Smats",Self)
+     call Bcast_MPI(comm,Self)
      allocate(Ebands(Nlso,Le))
      allocate(Dbands(Nlso,Le))
      allocate(Wband(Nlso))
@@ -93,6 +93,7 @@ program lancED
      call dmft_kinetic_energy_Bethe(Ebands,Dbands,H0,Self)
      !
      call finalize_MPI(comm)
+     stop
   end if
 
 
@@ -189,6 +190,7 @@ program lancED
 
   call Barrier_MPI()
   call finalize_MPI()
+  stop
 
 contains
 
