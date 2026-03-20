@@ -201,7 +201,6 @@ contains
     complex(8),dimension(2,2,Lmats) :: gloc
     complex(8),dimension(2,2,Lreal) :: grloc
     real(8)                         :: wm(Lmats),wr(Lreal)
-    real(8)                         :: epsi(Le),dos(Le),wb
     !
     wm = pi/beta*real(2*arange(1,Lmats)-1,8)
     wr = linspace(wini,wfin,Lreal)
@@ -210,13 +209,13 @@ contains
     do iorb=1,Norb              !work out each orbital independently:ACTHUNG
        do i=1,Lmats
           iw      = xi*wm(i)
-          zita(1,1) = iw + xmu - Smats(1,1,1,iorb,iorb,i) !A-up,up
-          zita(1,2) = iw + xmu - Smats(1,2,2,iorb,iorb,i) !A-dw,dw
-          zita(2,1) = iw + xmu - Smats(2,1,1,iorb,iorb,i) !B-up,up
-          zita(2,2) = iw + xmu - Smats(2,2,2,iorb,iorb,i) !B-dw,dw
+          zita(1,1) = iw + xmu - Smats(1,1,1,iorb,iorb,i) !Aup
+          zita(1,2) = iw + xmu - Smats(1,2,2,iorb,iorb,i) !Adw
+          zita(2,1) = iw + xmu - Smats(2,1,1,iorb,iorb,i) !Bup=Adw
+          zita(2,2) = iw + xmu - Smats(2,2,2,iorb,iorb,i) !Bdw=Aup
           !
-          zeta(1)    = zita(1,1)*zita(1,2)
-          zeta(2)    = zita(2,1)*zita(2,2)
+          zeta(1)    = zita(1,1)*zita(1,2) !Z_Aup.Z_Bup = Z_Aup.Z_Adw local
+          zeta(2)    = zita(2,1)*zita(2,2) !Z_Adw.Z_Bdw = Z_Bup.Z_Bdw local
           !
           !G_{lat,sigma} = zita_{lat,sigma'} * Int de D(w)/(zita_{lat,sigma}*zita_{lat,sigma'} - e)
           Gmats(:,:,:,iorb,iorb,i)    = zero
@@ -225,10 +224,10 @@ contains
              Gmats(2,1,1,iorb,iorb,i) = Gmats(2,1,1,iorb,iorb,i) + Dbands(iorb,ie)/(zeta(2) - Ebands(iorb,ie)**2)
           enddo
           !Update all components:
-          Gmats(1,2,2,iorb,iorb,i) = zita(1,1)*Gmats(1,1,1,iorb,iorb,i) !G_{A,dw,dw}
           Gmats(1,1,1,iorb,iorb,i) = zita(1,2)*Gmats(1,1,1,iorb,iorb,i) !G_{A,up,up}
-          Gmats(2,2,2,iorb,iorb,i) = zita(2,1)*Gmats(2,1,1,iorb,iorb,i) !G_{B,dw,dw}
+          Gmats(1,2,2,iorb,iorb,i) = zita(1,1)*Gmats(1,1,1,iorb,iorb,i) !G_{A,dw,dw}
           Gmats(2,1,1,iorb,iorb,i) = zita(2,2)*Gmats(2,1,1,iorb,iorb,i) !G_{B,up,up}
+          Gmats(2,2,2,iorb,iorb,i) = zita(2,1)*Gmats(2,1,1,iorb,iorb,i) !G_{B,dw,dw}
           !
           if(cg_scheme=='weiss')then
              Weiss(1,1,1,iorb,iorb,i)= one/(one/Gmats(1,1,1,iorb,iorb,i) + Smats(1,1,1,iorb,iorb,i))
@@ -278,124 +277,67 @@ contains
     real(8),dimension(Nlso,Le),intent(in) :: Ebands    ![Nlat*Nspin*Norb][Lk]
     real(8),dimension(Nlso,Le),intent(in) :: Dbands    ![Nlat*Nspin*Norb][Lk]Lk]
     real(8),dimension(Nlso),intent(in)    :: Hloc    ![Nlat*Nspin*Norb]
-    complex(8),dimension(Nlso,Nlso,Le)    :: Sigma   ![Nlat*Nspin*Norb][Nlat*Nspin*Norb][L]
-    !
-    integer                               :: i,ik,iso
-    integer                               :: ilat,unit
-    real(8),dimension(Nlso,Nlso)          :: Sigma_HF
-    !
-    complex(8)                            :: Ak,Bk,Ck,Dk
-    complex(8)                            :: Gk,Tk
-    !
-    complex(8),dimension(:,:),allocatable :: Ak_,Bk_,Ck_,Dk_
-    complex(8),dimension(:,:),allocatable :: Gk_,Tk_
-    !
-    real(8),dimension(Nlso)               :: Tail0,Tail1
-    real(8),dimension(Nlso)               :: Lail0,Lail1
-    real(8)                               :: spin_degeneracy
-    !
-    real(8),dimension(Nlso)               :: H0,Hl
-    real(8),dimension(Nlso)               :: H0tmp,Hltmp
-    !
-    real(8),dimension(Nlso)               :: Ekin_,Eloc_
-    real(8),dimension(Nlat,Nso)           :: Ekin,Eloc
-    !
+    complex(8),dimension(Nlso,Nlso,Lmats) :: Sigma   ![Nlat*Nspin*Norb][Nlat*Nspin*Norb][L]
+    integer                               :: i,ie
+    integer                               :: unit
+    real(8),dimension(Norb)               :: Ekin
+    real(8)                               :: K
     real(8),dimension(:),allocatable      :: wm
     logical                               :: dos_diag !1. T / 2. F
-    !
+    complex(8)                            :: iw,zita(2,2),zeta(2)
+    integer :: ilat,iorb,jorb,ispin,jspin
     !
     !
     !Allocate and setup the Matsubara freq.
     if(allocated(wm))deallocate(wm);allocate(wm(Lmats))
     wm = pi/beta*dble(2*arange(1,Lmats)-1)
     !
-    !Get HF part of the self-energy
-    Sigma_HF = dreal(Sigma(:,:,Lmats))
     !
-    !
+    !Get Sigma:
+    allocate(Gmats(Nlat,Nspin,Nspin,Norb,Norb,Lmats))
+    allocate(Smats(Nlat,Nspin,Nspin,Norb,Norb,Lmats))
+    do concurrent(ilat=1:Nlat,ispin=1:Nspin,jspin=1:Nspin,iorb=1:Norb,jorb=1:Norb)
+       io = iorb + (ispin-1)*Norb + (ilat-1)*Norb*Nspin
+       jo = jorb + (jspin-1)*Norb + (ilat-1)*Norb*Nspin
+       Smats(ilat,ispin,jspin,iorb,jorb,:) = Sigma(io,jo,:)
+    enddo
+
+
     if(master)write(*,"(A)") "Kinetic energy computation"
     if(master)call start_timer()
-    H0=0d0
-    Hl=0d0
-    H0tmp= 0d0
-    Hltmp= 0d0
-    !
-    Tail0=0d0
-    Tail1=0d0
-    Lail0=0d0
-    Lail1=0d0
-    !
-    !Get principal part: Tr[ Hk.(Gk-Tk) ]
-    do ik=1,Le
-       do iso=1,Nlso
-          Ak = Ebands(iso,ik)
-          Bk =-Ebands(iso,ik) - Sigma_HF(iso,iso)
-          do i=1+rank,Lmats,msize
-             Gk = (xi*wm(i)+xmu) - Sigma(iso,iso,i) - Ebands(iso,ik) - Hloc(iso)
-             Gk = 1d0/Gk
-             Tk = 1d0/(xi*wm(i)) - Bk/(xi*wm(i))**2
-             Ck = Ak*(Gk - Tk)
-             Dk = Hloc(iso)*(Gk - Tk)
-             H0tmp(iso) = H0tmp(iso) + Dbands(iso,ik)*Ck
-             Hltmp(iso) = Hltmp(iso) + Dbands(iso,ik)*Dk
+    
+
+    do iorb=1,Norb              !work out each orbital independently:ACTHUNG
+       do i=1,Lmats
+          iw      = xi*wm(i)
+          zita(1,1) = iw + xmu - Smats(1,1,1,iorb,iorb,i) !Aup
+          zita(1,2) = iw + xmu - Smats(1,2,2,iorb,iorb,i) !Adw
+          zita(2,1) = iw + xmu - Smats(2,1,1,iorb,iorb,i) !Bup=Adw
+          zita(2,2) = iw + xmu - Smats(2,2,2,iorb,iorb,i) !Bdw=Aup
+          zeta(1)    = zita(1,1)*zita(1,2) !Z_Aup.Z_Bup = Z_Aup.Z_Adw local
+          zeta(2)    = zita(2,1)*zita(2,2) !Z_Adw.Z_Bdw = Z_Bup.Z_Bdw local
+          !
+          !G_{lat,sigma} = zita_{lat,sigma'} * Int de D(w)/(zita_{lat,sigma}*zita_{lat,sigma'} - e)
+          Gmats(:,:,:,iorb,iorb,i)    = zero
+          do ie=1,Le
+             Gmats(1,1,1,iorb,iorb,i) = Gmats(1,1,1,iorb,iorb,i) + Dbands(iorb,ie)/(zeta(1) - Ebands(iorb,ie)**2)
+             Gmats(2,1,1,iorb,iorb,i) = Gmats(2,1,1,iorb,iorb,i) + Dbands(iorb,ie)/(zeta(2) - Ebands(iorb,ie)**2)
           enddo
-       enddo
-       if(master)call eta(ik,Le)
-    enddo
-    if(master)call stop_timer()
-    call AllReduce_MPI(MPI_COMM_WORLD,H0tmp,H0)
-    call AllReduce_MPI(MPI_COMM_WORLD,Hltmp,Hl)
-    spin_degeneracy=3d0-Nspin     !2 if Nspin=1, 1 if Nspin=2
-    H0=H0/beta*2*spin_degeneracy
-    Hl=Hl/beta*2*spin_degeneracy
-    !
-    !get tail subtracted contribution: Tr[ Hk.Tk ]
-    do ik=1,Le
-       do iso=1,Nlso
-          Ak = Ebands(iso,ik)
-          Bk =-Ebands(iso,ik) - Sigma_HF(iso,iso)
-          Ck= Ak*Bk
-          Dk= Hloc(iso)*Bk
-          Tail0(iso) = Tail0(iso) + 0.5d0*Dbands(iso,ik)*Ak
-          Tail1(iso) = Tail1(iso) + 0.25d0*Dbands(iso,ik)*Ck
-          Lail0(iso) = Lail0(iso) + 0.5d0*Dbands(iso,ik)*Hloc(iso)
-          Lail1(iso) = Lail1(iso) + 0.25d0*Dbands(iso,ik)*Dk
+          !Update all components:
+          Gmats(1,1,1,iorb,iorb,i) = zita(1,2)*Gmats(1,1,1,iorb,iorb,i) !G_{A,up,up}
+          Gmats(1,2,2,iorb,iorb,i) = zita(1,1)*Gmats(1,1,1,iorb,iorb,i) !G_{A,dw,dw}
+          Gmats(2,1,1,iorb,iorb,i) = zita(2,2)*Gmats(2,1,1,iorb,iorb,i) !G_{B,up,up}
+          Gmats(2,2,2,iorb,iorb,i) = zita(2,1)*Gmats(2,1,1,iorb,iorb,i) !G_{B,dw,dw}
+          !
+          Ekin(iorb) = Ekin(iorb) + Gmats(1,1,1,iorb,iorb,i)*Gmats(2,1,1,iorb,iorb,i)/beta
        enddo
     enddo
-    Tail0=Tail0*spin_degeneracy
-    Tail1=Tail1*beta*spin_degeneracy
-    Lail0=Lail0*spin_degeneracy
-    Lail1=Lail1*beta*spin_degeneracy
-    !
-    Ekin_=H0+Tail0+Tail1
-    Eloc_=Hl+Lail0+Lail1
-    !
+
+
     if(master)then
        unit = free_unit()
-       open(unit,file="dmft_kinetic_energy.info")
-       write(unit,"(A1,90(A14,1X))")"#",&
-            str(1)//"<K>",str(2)//"<Eloc>",&
-            (str(2+i)//"<K"//str(i)//">",i=1,Nso),&
-            (str(2+Nso+i)//"<Eloc"//str(i)//">",i=1,Nso)
-       close(unit)
-       !
-       !
-       do ilat=1,Nlat
-          do iso=1,Nso
-             i = iso + (ilat-1)*Nso
-             Ekin(ilat,iso) = Ekin_(i)
-             Eloc(ilat,iso) = Eloc_(i)
-          enddo
-       enddo
-       !
-       unit = free_unit()
-       open(unit,file="dmft_kinetic_energy.dat")       
-       do ilat=1,Nlat
-          write(unit,"(100000F15.9)")sum(Ekin(ilat,:)),sum(Eloc(ilat,:)),&
-               (Ekin(ilat,i),i=1,Nso),&
-               (Eloc(ilat,i),i=1,Nso)
-       enddo
-       write(unit,"(90F15.9)")sum(Ekin)/Nlat,sum(Eloc)/Nlat
+       open(unit,file="dmft_kinetic_energy.dat")
+       write(unit,"(90F15.9)")sum(Ekin)
        close(unit)
     endif
     !
@@ -403,8 +345,15 @@ contains
   end subroutine dmft_kinetic_energy_Bethe
 
 
-
-end program lancED
+  function anti_diag(V) result(M)
+    real(8),dimension(:)               :: V
+    real(8),dimension(size(V),size(V)) :: M
+    integer :: i
+    M=0d0
+    forall(i=1:size(V))M(i,Nlso-i+1)=V(i)    
+  end function anti_diag
+  
+end program
 
   
 
