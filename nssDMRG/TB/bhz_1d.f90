@@ -39,7 +39,7 @@ program bhz_1d
   call add_ctrl_var(0d0,"xmu")
   call add_ctrl_var(-5d0,"wini")
   call add_ctrl_var(5d0,"wfin")
-  call add_ctrl_var(0.02d0,"eps")
+  call add_ctrl_var(0.001d0,"eps")
 
 
   !SETUP THE GAMMA MATRICES:
@@ -53,9 +53,9 @@ program bhz_1d
 
 
   !First solve the H(k) problem (use PBC here)
-  allocate(Hk(Nso,Nso,Nx))
-  call TB_build_model(Hk,hk_model,Nso,[Nx])
-  Hloc=sum(Hk,dim=3)/Nx
+  allocate(Hk(Nso,Nso,max(Nx,2000)))
+  call TB_build_model(Hk,hk_model,Nso,[max(Nx,2000)])
+  Hloc=sum(Hk,dim=3)/max(Nx,2000)
   where(abs(Hloc)<1d-6)Hloc=zero
   call TB_write_Hloc(Hloc)
   deallocate(Hloc)
@@ -92,7 +92,7 @@ program bhz_1d
      open(100,file="bhz_obsVSnlat_OBC.dat")
   endif
 
-  do Nlat=2,Nx,2
+  do Nlat=4,Nx,2
 
      if(allocated(Hlat))deallocate(Hlat)
      allocate(Hlat(Nso,Nso,Nlat,Nlat))
@@ -129,8 +129,8 @@ program bhz_1d
      E0 = sum(Eij(:Nup)) + sum(Eij(:Ndw))
      E0 = E0/Nlat/Nso
      !
-     write(*,*)Nlat,E0,(sum(dens(:,i))/Nlat,i=1,4),sum(dens)/Nlat
-     write(100,*)Nlat,E0,(sum(dens(:,i))/Nlat,i=1,4),sum(dens)/Nlat
+     write(*,*)Nlat/2,E0,(sum(dens(:,i))/Nlat,i=1,4),sum(dens)/Nlat
+     write(100,*)Nlat/2,E0,(sum(dens(:,i))/Nlat,i=1,4),sum(dens)/Nlat
      !
      deallocate(Hij,Eij,rhoDiag,rhoH,dens)
   enddo

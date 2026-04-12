@@ -18,16 +18,17 @@ program hm_1d
   real(8),dimension(:),allocatable            :: rhoDiag
   real(8),dimension(:,:),allocatable          :: rhoH,dens
   complex(8),dimension(:,:,:,:,:),allocatable :: Gmats,Greal
-  real(8)                                     :: mh,ts,lambda,E0
+  real(8)                                     :: mh,ts,lambda,E0,alpha
   real(8)                                     :: xmu,beta
   character(len=20)                           :: file
   logical                                     :: pbc
   complex(8),dimension(:,:),allocatable       :: GammaX,Gamma0,GammaZ
 
   call parse_input_variable(nkx,"NKX","input.conf",default=100)
+  call parse_input_variable(ts,"ts","input.conf",default=-1d0)
+  call parse_input_variable(alpha,"ALPHA","input.conf",default=1d0)
   call parse_input_variable(mh,"MH","input.conf",default=0d0)
   call parse_input_variable(lambda,"LAMBDA","input.conf",default=0d0)
-  call parse_input_variable(ts,"ts","input.conf",default=-1d0)
   call parse_input_variable(norb,"Norb","input.conf",default=2)
   call parse_input_variable(pbc,"pbc","input.conf",default=.false.)
   call parse_input_variable(beta,"beta","input.conf",default=1000d0)
@@ -56,7 +57,7 @@ program hm_1d
      gammaZ=zero
   case(2)
      gammaX=pauli_tau_x
-     gamma0=pauli_tau_0
+     gamma0=one*diag([1d0,alpha])
      gammaZ=pauli_tau_z
   end select
 
@@ -110,7 +111,9 @@ program hm_1d
      open(100,file="hm_obsVSnlat_OBC.dat")
   endif
 
-  do Nlat=2,Nx,2
+  if(Nx<4)stop "ERROR: Nx<4"
+  
+  do Nlat=4,Nx,2
 
      if(allocated(Hlat))deallocate(Hlat)
      allocate(Hlat(Nso,Nso,Nlat,Nlat))

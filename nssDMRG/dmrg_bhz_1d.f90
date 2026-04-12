@@ -11,7 +11,7 @@ program BHZ_1d
   integer                                        :: i,unit,iorb,ispin
   real(8)                                        :: eh,mh,lambda
   type(site)                                     :: Dot
-  complex(8),dimension(4,4)                      :: Gamma5,Gamma1
+  complex(8),dimension(4,4)                      :: GammaZ,GammaX
   complex(8),dimension(:,:),allocatable          :: Hloc,Hlr
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
   type(sparse_matrix),dimension(:),allocatable   :: dens,docc,sz,s2z,Mvec
@@ -33,7 +33,6 @@ program BHZ_1d
        comment="Bool to run DMRG. F for post-processing")
   call parse_input_variable(imeasure,"imeasure",finput,default=.true.,&
        comment="Bool to perform measurements. T for post-processing.")
-  call parse_input_variable(eh,"EH",finput,default=1.d0)
   call parse_input_variable(mh,"MH",finput,default=0.5d0)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.3d0)
   call read_input(finput)
@@ -44,18 +43,18 @@ program BHZ_1d
        stop "Wrong setup from input file: Nspin=Norb=2 -> 4Spin-Orbitals"
   Nso=Nspin*Norb
 
-  gamma1=kron( pauli_sigma_z, pauli_tau_x)
-  gamma5=kron( pauli_sigma_0, pauli_tau_z)
+  gammaX=kron( pauli_sigma_z, pauli_tau_x)
+  gammaZ=kron( pauli_sigma_0, pauli_tau_z)
 
   !>Local Hamiltonian:
   allocate(Hloc(Nso,Nso))
-  Hloc = Mh*Gamma5
+  Hloc = Mh*GammaZ
   Dot  = electron_site(Hloc)
 
   !>Hopping Hamiltonian (i->i+1, right hop direction)
   if(allocated(Hlr))deallocate(Hlr)
   allocate(Hlr(Nso,Nso))
-  Hlr = -eh/2d0*Gamma5 + xi*lambda/2d0*Gamma1
+  Hlr = -0.5d0*GammaZ + 0.5d0*xi*lambda*GammaX
 
 
   !Init DMRG

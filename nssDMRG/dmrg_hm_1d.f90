@@ -9,7 +9,7 @@ program hubbard_1d
   integer                                        :: Nso
   character(len=64)                              :: finput
   integer                                        :: i,unit,iorb,ispin,pos
-  real(8)                                        :: ts(2),Mh,lambda,val,K
+  real(8)                                        :: ts,Mh,lambda,val,K,alpha
   type(site)                                     :: MyDot
   type(sparse_matrix) :: P,Cl,Pl,Tij
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
@@ -28,17 +28,20 @@ program hubbard_1d
 
 
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
+  
   call parse_input_variable(imeasure,"imeasure",finput,default=.true.,&
        comment="Bool to perform measurements. T for post-processing.")
-  call parse_input_variable(ts,"TS",finput,default=(/( -0.5d0,i=1,2 )/),&
-       comment="Hopping amplitudes")
-  call parse_input_variable(Mh,"MH",finput,default=0d0,&
-       comment="Crystal field splittings")
-  call parse_input_variable(lambda,"LAMBDA",finput,default=0d0,&
-       comment="off-diagonal amplitude")
+  call parse_input_variable(ts,"TS",finput,default=-0.5d0,comment="Hopping amplitude")
+  call parse_input_variable(alpha,"alpha",finput,default=1d0,comment="bandwidth ratio")
+  call parse_input_variable(Mh,"MH",finput,default=0d0,comment="Crystal field splittings")
+  call parse_input_variable(lambda,"LAMBDA",finput,default=0d0,comment="off-diagonal amplitude")
 
   call read_input(finput)
 
+  if(Imeasure)then
+     save_block=.true.
+     save_umat=.true.
+  endif
 
   Nso = Nspin*Norb
   allocate(Hloc(Nso,Nso))
@@ -46,11 +49,10 @@ program hubbard_1d
   select case(Norb)
   case(1)
      Hloc = Mh*pauli_z          !use it as a Zeeman field
-     Hlr  = diag([ts(1:Norb),ts(1:Norb)])
-  case(2)
-     Hloc = Mh*kron(pauli_0,pauli_z)
-     Hlr  = diag([ts(1:Norb),ts(1:Norb)]) &
-          + lambda*kron(pauli_0,pauli_x)
+     Hlr  = ts*pauli_0
+  case(2)                       !spin x orbital <= ext x int
+     Hloc = one*Mh*kron(pauli_0,pauli_z)
+     Hlr  = one*ts*kron(pauli_0,diag([1d0,alpha])) + one*lambda/2d0*kron(pauli_0,pauli_x)
   case default;stop "This code is for Norb<=2. STOP"
   end select
   if(master)then
@@ -59,7 +61,7 @@ program hubbard_1d
   endif
 
   !Setup Dot basis:
-  MyDot = electron_site()
+  MyDot = electron_site(Hloc)
 
   !Init DMRG
   call init_dmrg(Hlr,ModelDot=[MyDot])

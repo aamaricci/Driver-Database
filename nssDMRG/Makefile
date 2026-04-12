@@ -6,9 +6,9 @@
 
 #EXE=dmrg_hm_1d
 #EXE=dmrg_spin_1d
-#EXE=dmrg_bhz_1d
+EXE=dmrg_bhz_1d
 #EXE=test_spin_1d
-EXE=dmrg_Ce2O2FeSe2_1d
+#EXE=dmrg_Ce2O2FeSe2_1d
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
@@ -67,35 +67,28 @@ define colorecho
 	@tput sgr0
 endef
 
+mpi: FLAG:=${FFLAG} ${FPPMPI}
+mpi:
+	@echo ""
+	$(call colorecho,"compiling $(EXE).f90 ", 6)
+	@echo ""
+	$(FC) -o $(DIREXE)/$(EXE) $(EXE).f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	@echo "Done"
+	$(call colorecho,"created MPI $(EXE) in  $(DIREXE)", 1)
+
 
 serial: FLAG:=${FFLAG} ${FPPSERIAL}
 serial:
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/serial_$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
-	$(call colorecho,"created $(EXE) in  $(DIREXE)", 1)
+	$(call colorecho,"created serial_$(EXE) in  $(DIREXE)", 1)
 
 
 
-debug: FLAG:=${DFLAG} ${FPPSERIAL} -D_DEBUG
-debug:
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
-	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/debug_$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	$(call colorecho,"created debug_$(EXE) in  $(DIREXE)", 1)
 
-
-mpi: FLAG:=${FFLAG} ${FPPMPI}
-mpi:
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
-	@echo ""
-	$(FC)   -o $(DIREXE)/mpi_$(EXE) $(EXE).f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
-	@echo "Done"
-	$(call colorecho,"created mpi_$(EXE) in  $(DIREXE)", 1)
 
 mpi_debug: FLAG:=${DFLAG} ${FPPMPI} -D_DEBUG
 mpi_debug:
@@ -105,6 +98,15 @@ mpi_debug:
 	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/mpi_debug_$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
 	$(call colorecho,"created mpi_debug_$(EXE) in  $(DIREXE)", 1)
+
+
+debug: FLAG:=${DFLAG} ${FPPSERIAL} -D_DEBUG
+debug:
+	@echo ""
+	$(call colorecho,"compiling $(EXE).f90 ", 6)
+	@echo ""
+	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/serial_debug_$(EXE) ${GLOB_INC} ${GLOB_LIB}
+	$(call colorecho,"created serial_debug_$(EXE) in  $(DIREXE)", 1)
 
 
 
