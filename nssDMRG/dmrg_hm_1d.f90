@@ -11,7 +11,7 @@ program hubbard_1d
   integer                                        :: i,unit,iorb,ispin,pos
   real(8)                                        :: ts,Mh,lambda,val,K,alpha
   type(site)                                     :: MyDot
-  type(sparse_matrix) :: P,Cl,Pl,Tij
+  type(sparse_matrix)                            :: P,Cl,Pl,Tij
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
   type(sparse_matrix),dimension(:),allocatable   :: pair,dens,docc,sz,s2z,Mvec
   real(8),dimension(:,:),allocatable             :: Hloc,Hlr
@@ -93,7 +93,6 @@ program hubbard_1d
      !
      call Measure_DMRG(Mvec,file="n_d_s2z_pairVSj", pos=arange(1,Ldmrg))
      !
-
      !Measure <K>
      if(master)unit=fopen("K"//str(label_DMRG('u')),append=.true.)
      call Init_measure_dmrg("K")
@@ -108,10 +107,7 @@ program hubbard_1d
      enddo
      if(master)write(unit,*)K
      call End_measure_dmrg()
-     if(Master)close(unit)
-
-
-     
+     if(Master)close(unit)    
   endif
 
 

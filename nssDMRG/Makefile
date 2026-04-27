@@ -4,9 +4,11 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
+#EXE=dmrg_as_ed_spin_1d
+EXE=dmrg_as_ed_hm_1d
 #EXE=dmrg_hm_1d
 #EXE=dmrg_spin_1d
-EXE=dmrg_bhz_1d
+#EXE=dmrg_bhz_1d
 #EXE=test_spin_1d
 #EXE=dmrg_Ce2O2FeSe2_1d
 FC=mpif90
