@@ -4,8 +4,8 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
-#EXE=ed_hm_square_afm2
-EXE=ed_hm_bethe_AFM
+
+EXE=ed_hm_bethe
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin

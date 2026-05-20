@@ -1,5 +1,5 @@
 program lancED
-  USE EDIPACK2
+  USE EDIPACK
   USE SCIFOR
   USE DMFT_TOOLS
   USE MPI
@@ -116,10 +116,10 @@ program lancED
      !
      !Get the Weiss field/Delta function to be fitted
      if(.not.betheSC)then
-        call dmft_self_consistency(Gmats,Smats,Weiss,Hloc)
+        call dmft_self_consistency(Gmats,Smats,Weiss)!,Hloc)
      else
         if(wGimp)call ed_get_gimp(Gmats,axis='m')
-        call dmft_self_consistency(Gmats,Smats,Weiss,Hloc)
+        call dmft_self_consistency(Gmats,Smats,Weiss)!,Hloc)
      endif
      call dmft_write_gf(Weiss,"Weiss",axis='m',iprint=1)
      !
