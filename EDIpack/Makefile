@@ -5,32 +5,27 @@
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
 
-EXE=ed_hm_bethe
+EXE=ed_hm_bethe_AFM
 FC=mpif90
 PLAT=gnu
 DIREXE=$(HOME)/.bin
 
 # LIBRARIES TO BE INCLUDED
-#$ LIB_TB: specify custom tight-binding library if any
-LIB_ED=edipack
-#LIB_TB=honeytools
+REQUIRED_LIBS=edipack dmft_tools scifor
 
 
 #NO NEED TO CHANGE DOWN HERE, only expert mode.
 #########################################################################
-
-ifdef LIB_ED
-GLOB_INC+=$(shell pkg-config --cflags ${LIB_ED})
-GLOB_LIB+=$(shell pkg-config --libs ${LIB_ED})
+ifdef REQUIRED_LIBS
+$(foreach lib,$(REQUIRED_LIBS),\
+    $(if $(filter 1,$(shell pkg-config --exists $(lib); echo $$?)),\
+        $(error Error: Required library '$(lib)' is missing. Install it, load it or update PKG_CONFIG_PATH)\
+    )\
+)
 endif
 
-ifdef LIB_TB
-GLOB_INC+=$(shell pkg-config --cflags ${LIB_TB})
-GLOB_LIB+=$(shell pkg-config --libs ${LIB_TB})
-endif
-
-GLOB_INC+=$(shell pkg-config --cflags dmft_tools scifor)
-GLOB_LIB+=$(shell pkg-config --libs   dmft_tools scifor)
+GLOB_INC+=$(shell pkg-config --cflags ${REQUIRED_LIBS})
+GLOB_LIB+=$(shell pkg-config --libs ${REQUIRED_LIBS})
 
 
 ifeq ($(PLAT),intel)
@@ -70,7 +65,8 @@ endef
 
 
 all: FLAG:=${FFLAG} ${FPPMPI}
-all:
+all: msg
+all: 
 	@echo ""
 	$(call colorecho,"compiling $(EXE).f90 ", 6)
 	@echo ""
@@ -122,6 +118,11 @@ serial_debug:
 	@echo ""
 	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/$(EXE) ${GLOB_INC} ${GLOB_LIB}
 	@echo "Done"
+
+
+msg:
+	@echo "Combined CFLAGS:  $(GLOB_INC)"
+	@echo "Combined LDFLAGS: $(GLOB_LIB)"
 
 clean: 
 	@echo "Cleaning:"

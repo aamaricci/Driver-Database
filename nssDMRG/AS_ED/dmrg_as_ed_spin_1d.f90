@@ -101,7 +101,7 @@ program testEDkron
      t0_=t_start()
      call start_timer()
   endif
-  call sp_eigh(MPI_COMM_WORLD,spMatVec_MPI_direct_main,evals,evecs,&
+  call sp_eigh(MPI_COMM_WORLD,spHtimesV_p,evals,evecs,&
        3*Neigen,&
        500,&
        tol=1d-12,&

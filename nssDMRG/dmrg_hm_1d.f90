@@ -16,7 +16,7 @@ program hubbard_1d
   type(sparse_matrix),dimension(:),allocatable   :: pair,dens,docc,sz,s2z,Mvec
   real(8),dimension(:,:),allocatable             :: Hloc,Hlr
   integer                                        :: irank,comm,rank,ierr
-  logical                                        :: master,imeasure
+  logical                                        :: master,imeasure,irun
   
 #ifdef _MPI  
   call init_MPI()
@@ -31,6 +31,8 @@ program hubbard_1d
   
   call parse_input_variable(imeasure,"imeasure",finput,default=.true.,&
        comment="Bool to perform measurements. T for post-processing.")
+    call parse_input_variable(irun,"irun",finput,default=.true.,&
+       comment="Bool to run DMRG. F for post-processing")
   call parse_input_variable(ts,"TS",finput,default=-0.5d0,comment="Hopping amplitude")
   call parse_input_variable(alpha,"alpha",finput,default=1d0,comment="bandwidth ratio")
   call parse_input_variable(Mh,"MH",finput,default=0d0,comment="Crystal field splittings")
@@ -68,7 +70,7 @@ program hubbard_1d
 
 
   !Run DMRG algorithm
-  call run_DMRG()
+  if(Irun)call run_DMRG()
 
 
   if(imeasure)then

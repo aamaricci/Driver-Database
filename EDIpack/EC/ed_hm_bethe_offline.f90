@@ -84,7 +84,6 @@ program lancED
   allocate(Greal(Nspin,Nspin,Norb,Norb,Lreal))
   allocate(Gtest(Lmats))
   allocate(Hloc(Nspin,Nspin,Norb,Norb))
-  allocate(dens(Norb))
   Hloc(1,1,:,:)=diag(H0)
 
 
@@ -106,43 +105,18 @@ program lancED
      !Solve the EFFECTIVE IMPURITY PROBLEM (first w/ a guess for the bath)
      call ed_solve(bath)
      call ed_get_sigma(Smats,axis='m')
-     call ed_get_sigma(Sreal,axis='r')
-     call ed_get_dens(dens)
-
+     !
      ! compute the local gf:
      call dmft_get_gloc(Ebands,Dbands,H0,Gmats,Smats,axis='m')
      call dmft_write_gf(Gmats,"Gloc",axis='m',iprint=1)
 
      !
      !Get the Weiss field/Delta function to be fitted
-     if(.not.betheSC)then
-        call dmft_self_consistency(Gmats,Smats,Weiss)!,Hloc)
-     else
-        if(wGimp)call ed_get_gimp(Gmats,axis='m')
-        call dmft_self_consistency(Gmats,Smats,Weiss)!,Hloc)
-     endif
+     call dmft_self_consistency(Gmats,Smats,Weiss)
      call dmft_write_gf(Weiss,"Weiss",axis='m',iprint=1)
-     !
-     !
-     !
-     if(mixG0)then
-        if(iloop>1)Weiss = wmixing*Weiss + (1.d0-wmixing)*Weiss_
-        Weiss_=Weiss
-     endif
-     !
-     !Perform the SELF-CONSISTENCY by fitting the new bath
-     if(symOrbs)then
-        call ed_chi2_fitgf(Weiss,bath,ispin=1,iorb=1)
-        call ed_orb_equality_bath(bath,save=.true.)
-     else
-        call ed_chi2_fitgf(Weiss,bath,ispin=1)
-     endif
-     !
-     !MIXING:
-     if(.not.mixG0)then
-        if(iloop>1)Bath = wmixing*Bath + (1.d0-wmixing)*Bath_
-        Bath_=Bath
-     endif
+     call ed_chi2_fitgf(Weiss,bath,ispin=1)
+     if(iloop>1)Bath = wmixing*Bath + (1.d0-wmixing)*Bath_
+     Bath_=Bath
      !
      !Check convergence (if required change chemical potential)
      Gtest=zero
@@ -150,18 +124,16 @@ program lancED
         Gtest=Gtest+Weiss(1,1,iorb,iorb,:)/Norb
      enddo
      converged = check_convergence(Gtest,dmft_error,nsuccess,nloop,reset=.false.)
-     if(nread/=0d0)call ed_search_variable(xmu,sum(dens),converged)
-
+     !
      call end_loop
   enddo
 
-  call ed_build_krylov_state_complexity(bath,["g1"])
-  call ed_build_krylov_operator_complexity(bath,["g1"])
+  call ed_ec_store_gs()
 
+  
+  call ed_get_sigma(Sreal,axis='r')
   call dmft_get_gloc(Ebands,Dbands,H0,Greal,Sreal,axis='r')
   call dmft_write_gf(Greal,"Greal",axis='r',iprint=1)
-
-  call dmft_kinetic_energy(Ebands,Dbands,H0,Smats(1,1,:,:,:))
 
 
 
