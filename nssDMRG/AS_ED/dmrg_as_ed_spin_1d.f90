@@ -55,12 +55,7 @@ program testEDkron
   target_qn = DMRG_qn
   !
 
-  write(LOGfile,"(A22,2I12)")"Blocks Length (L-R) = ",left%length,right%length
-  ! left  = block(My_Dot(1))
-  ! right = block(My_Dot(1))
-  call left%load(str(suffix_dmrg('left')//".restart"))
-  call right%load(str(suffix_dmrg('right')//".restart"))
-  if(left%length/=right%length)stop "infinite_DMRG error: L.length != R.length"
+  if(master)write(LOGfile,"(A22,2I12)")"Blocks Length (L-R) = ",left%length,right%length
   do iter=left%length,Niter-1
      if(master)write(*,*)"Enlarge to:",2*iter
      call enlarge_block(left,My_Dot(1),label='left')
@@ -68,7 +63,7 @@ program testEDkron
   enddo
 
   if(save_block)then
-     if(MpiMaster)then
+     if(master)then
         call left%save(suffix_dmrg('left',type='i')//".restart",gzip=.false.,include_omatrices=.false.)
         call right%save(suffix_dmrg('right',type='i')//".restart",gzip=.false.,include_omatrices=.false.)
      endif
@@ -117,7 +112,6 @@ program testEDkron
   endif
   deallocate(evals,evecs)
   call sb_delete_Hv()
-  print*,""
 
 
 
