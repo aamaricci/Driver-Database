@@ -55,23 +55,24 @@ program testEDkron
   target_qn = DMRG_qn
   !
 
-
-  print*,""
-  print*,""
-  print*,"######################################"
-  print*,"   o->o + o<-o"
-  print*,"######################################"
-  print*,""
-  print*,""
-
   write(LOGfile,"(A22,2I12)")"Blocks Length (L-R) = ",left%length,right%length
-  left  = block(My_Dot(1))
-  right = block(My_Dot(1))
-  do iter=1,Niter
+  ! left  = block(My_Dot(1))
+  ! right = block(My_Dot(1))
+  call left%load(str(suffix_dmrg('left')//".restart"))
+  call right%load(str(suffix_dmrg('right')//".restart"))
+  if(left%length/=right%length)stop "infinite_DMRG error: L.length != R.length"
+  do iter=left%length,Niter-1
      if(master)write(*,*)"Enlarge to:",2*iter
      call enlarge_block(left,My_Dot(1),label='left')
      call enlarge_block(right,My_Dot(1),label='right')
   enddo
+
+  if(save_block)then
+     if(MpiMaster)then
+        call left%save(suffix_dmrg('left',type='i')//".restart",gzip=.false.,include_omatrices=.false.)
+        call right%save(suffix_dmrg('right',type='i')//".restart",gzip=.false.,include_omatrices=.false.)
+     endif
+  endif
 
 
   !#################################
