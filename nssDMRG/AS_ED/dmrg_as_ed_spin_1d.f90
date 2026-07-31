@@ -101,7 +101,7 @@ program testEDkron
        3*Neigen,&
        500,&
        tol=1d-12,&
-       iverbose=.false.)
+       iverbose=.false.,NumOp=NumOp)
   if(master)then
      print*,"sp_peigh Time:",t_stop()
      call stop_timer()
