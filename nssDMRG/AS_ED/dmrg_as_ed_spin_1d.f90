@@ -114,7 +114,10 @@ program testEDkron
   call sb_delete_Hv()
 
 
+  call set_profile()
 
+
+  
   !Finalize DMRG
   call finalize_dmrg()
 #ifdef _MPI
