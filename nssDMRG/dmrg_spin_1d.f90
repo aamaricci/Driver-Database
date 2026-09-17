@@ -6,14 +6,14 @@ program dmrg_spin_1d
 #endif
   implicit none
   character(len=64)                  :: finput
-  integer                            :: i,SUN,Unit,pos
-  real(8)                            :: Hvec(3),Noise,R,Sij
+  integer                            :: i,j,SUN,Unit,pos,Nsites
+  real(8)                            :: Hvec,Noise,R,Sij
   type(site)                         :: MyDot
-  type(sparse_matrix)                :: bSz,bSp,SiSj
+  type(sparse_matrix)                :: Sz,Sz2
   real(8),dimension(:,:),allocatable :: Hlr
   integer                            :: irank,comm,rank,ierr
-  logical                            :: master,imeasure
-  character(len=:),allocatable       :: key_Sz,key_Sp
+  logical                            :: master=.true.,irun,imeasure
+  character(len=:),allocatable       :: key_Sz
   
 #ifdef _MPI  
   call init_MPI()
@@ -26,50 +26,63 @@ program dmrg_spin_1d
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
   call parse_input_variable(imeasure,"imeasure",finput,default=.true.,&
        comment="Bool to perform measurements. T for post-processing.")
+  call parse_input_variable(irun,"irun",finput,default=.true.,&
+       comment="Bool to run DMRG. F for post-processing")       
   call parse_input_variable(SUN,"SUN",finput,default=2,&
        comment="Spin SU(N) value. 2=> spin 1/2, 3=> spin 1")
   call parse_input_variable(Noise,"NOISE",finput,default=0d0,&
        comment="Magnetic field noise amplitude")
-  call parse_input_variable(Hvec,"Hvec",finput,default=[0d0,0d0,0d0],&
+  call parse_input_variable(Hvec,"Hvec",finput,default=0d0,&
        comment="Magnetic field direction")
+
   call read_input(finput)
 
+  if(Imeasure)then
+     save_block=.true.
+     save_umat=.true.
+  endif
+
+  Nsites=2*Ldmrg
+
+  MyDot = spin_site(sun=SUN,Hz=Hvec)
+  Hlr   = diag([Jp,Jx/2d0])
 
   !Init DMRG
-
-  MyDot = spin_site(sun=SUN,Hvec=Hvec)
-  Hlr   = diag([Jp,Jx/2d0])
   call init_dmrg(Hlr,ModelDot=[MyDot])
 
 
   !Run DMRG algorithm
-  call run_DMRG()
+  if(Irun)call run_DMRG()
 
 
 
   if(imeasure)then
      !Post-processing and measure quantities:
-     !Measure <Sz(i)>
+     !Measure <Sz(i)>, <Sz(i).Sz(i)>
      key_Sz="S"//mydot%okey(0,1,ilink="n")
-     key_Sp="S"//mydot%okey(0,2,ilink="n")
+     Sz =MyDot%operators%op(key_Sz)
+     Sz2=matmul(Sz,Sz)
+     !
+     call Measure_DMRG([Sz,Sz2],file="Sz_Sz2VSj",pos=arange(1,Nsites))
 
-     call Measure_DMRG(MyDot%operators%op(key=key_Sz),file="SzVSj")
-
-
-     !Measure <S(i).S(i+1)>
-     if(master)unit=fopen("SiSjVSsite"//str(label_DMRG('u')),append=.true.)
-     call Init_measure_dmrg("SiSjVSsite")
-     do pos=1,Ldmrg-1
-        bSz = Build_Op_DMRG(MyDot%operators%op(key_Sz),pos,set_basis=.true.)
-        bSp = Build_Op_DMRG(MyDot%operators%op(key_Sp),pos,set_basis=.true.)
-        SiSj= get_SiSj(bSz,bSp,MyDot%operators%op(key_Sz),MyDot%operators%op(key_Sp))
-        SiSj= Advance_Corr_DMRG(SiSj,pos)
-        Sij = Average_Op_DMRG(SiSj,pos)
-        if(master)write(unit,*)pos,Sij
-        if(master)call eta(pos,Ldmrg-1)
+     !Nearest-neighbour reference correlations: i, <S_i.S_(i+1)>.
+     if(master)unit=fopen("spin_nnVSj"//str(label_DMRG('u')),append=.false.)
+     do i=1,Nsites-1
+        Sij=Measure_SpinSpin_DMRG(i,i+1)
+        if(master)write(unit,*)i,Sij
      enddo
-     call End_measure_dmrg()
-     if(Master)close(unit)
+     if(master)close(unit)
+
+     !Long-range reference correlations: j, <S_1.S_j>.
+     if(master)unit=fopen("spin_1jVSj"//str(label_DMRG('u')),append=.false.)     
+     do j=1,Nsites
+        Sij=Measure_SpinSpin_DMRG(1,j)
+        if(master)write(unit,*)j,Sij
+     enddo
+     if(master)close(unit)
+     call End_Measure_DMRG()
+     call Sz%free()
+     call Sz2%free()
   endif
 
   !Finalize DMRG
@@ -78,19 +91,7 @@ program dmrg_spin_1d
   call finalize_MPI()
 #endif
 
-contains
-
-
-  function get_SiSj(Sz1,Sp1,Sz2,Sp2) result(sisj)
-    type(sparse_matrix) :: sisj
-    type(sparse_matrix) :: Sz1,Sp1,Sz2,Sp2
-    SiSj = 0.5d0*(Sp1.x.Sp2%dgr()) +  0.5d0*(Sp1%dgr().x.Sp2)  + (Sz1.x.Sz2)
-  end function get_SiSj
-
-
 end program dmrg_spin_1d
-
-
 
 
 

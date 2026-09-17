@@ -66,53 +66,52 @@ define colorecho
 	@tput sgr0
 endef
 
-mpi: FLAG:=${FFLAG} ${FPPMPI}
-mpi:
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
-	@echo ""
-	$(FC) -o $(DIREXE)/$(EXE) $(EXE).f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
-	@echo "Done"
-	$(call colorecho,"created MPI $(EXE) in  $(DIREXE)", 1)
+all: spin hubbard
 
+
+spin: FLAG:=${FFLAG} ${FPPMPI}
+spin: 
+	@echo ""
+	$(call colorecho,"compiling dmrg_spin_1d.f90 ", 1)
+	$(FC) -o $(DIREXE)/dmrg_spin_1d dmrg_spin_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(call colorecho,"created MPI dmrg_spin_1d in  $(DIREXE)", 2)
+	@echo ""
+
+hubbard: FLAG:=${FFLAG} ${FPPMPI}
+hubbard: 
+	@echo ""	
+	$(call colorecho,"compiling dmrg_hm_1d.f90 ", 1)
+	$(FC) -o $(DIREXE)/dmrg_hm_1d dmrg_hm_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(call colorecho,"created MPI dmrg_hm_1d in  $(DIREXE)", 2)
+	@echo ""	
+
+bhz: FLAG:=${FFLAG} ${FPPMPI}
+bhz: 
+	@echo ""
+	$(call colorecho,"compiling dmrg_bhz_1d.f90 ", 1)
+	$(FC) -o $(DIREXE)/dmrg_bhz_1d dmrg_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(call colorecho,"created MPI dmrg_bhz_1d in  $(DIREXE)", 2)
+	@echo ""
+
+
+mpi: FLAG:=${FFLAG} ${FPPMPI}
+mpi: spin hubbard
 
 serial: FLAG:=${FFLAG} ${FPPSERIAL}
-serial:
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
-	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/serial_$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	@echo "Done"
-	$(call colorecho,"created serial_$(EXE) in  $(DIREXE)", 1)
+serial: spin hubbard
 
 
+debug: FLAG:=${DFLAG} ${FPPMPI} -D_DEBUG
+debug: spin hubbard
 
-
-
-mpi_debug: FLAG:=${DFLAG} ${FPPMPI} -D_DEBUG
-mpi_debug:
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
-	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/mpi_debug_$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	@echo "Done"
-	$(call colorecho,"created mpi_debug_$(EXE) in  $(DIREXE)", 1)
-
-
-debug: FLAG:=${DFLAG} ${FPPSERIAL} -D_DEBUG
-debug:
-	@echo ""
-	$(call colorecho,"compiling $(EXE).f90 ", 6)
-	@echo ""
-	$(FC) $(FLAG) $(EXE).f90 -o $(DIREXE)/serial_debug_$(EXE) ${GLOB_INC} ${GLOB_LIB}
-	$(call colorecho,"created serial_debug_$(EXE) in  $(DIREXE)", 1)
+serial_debug: FLAG:=${DFLAG} ${FPPSERIAL} -D_DEBUG
+serial_debug: spin hubbard
 
 
 
 clean: 
 	@echo "Cleaning:"
 	@rm -f *.mod *.o *~
-	@rm -fv  $(DIREXE)/*$(EXE)
 
 
 

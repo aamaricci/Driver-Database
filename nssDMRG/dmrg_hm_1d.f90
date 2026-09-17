@@ -8,15 +8,17 @@ program hubbard_1d
 
   integer                                        :: Nso
   character(len=64)                              :: finput
-  integer                                        :: i,unit,iorb,ispin,pos
+  integer                                        :: i,j,unit,iorb,ispin,pos,Nsites
   real(8)                                        :: ts,Mh,lambda,val,K,alpha
+  real(8)                                        :: Eloc,Etotal
   type(site)                                     :: MyDot
-  type(sparse_matrix)                            :: P,Cl,Pl,Tij
+  type(sparse_matrix)                            :: Kij,Hi
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
   type(sparse_matrix),dimension(:),allocatable   :: pair,dens,docc,sz,s2z,Mvec
-  real(8),dimension(:,:),allocatable             :: Hloc,Hlr
+  real(8),dimension(:,:),allocatable             :: Hloc,Hlr,avLocal,corr
+  real(8),dimension(:),allocatable               :: corr_values
   integer                                        :: irank,comm,rank,ierr
-  logical                                        :: master,imeasure,irun
+  logical                                        :: master=.true.,imeasure,irun
   
 #ifdef _MPI  
   call init_MPI()
@@ -31,7 +33,7 @@ program hubbard_1d
   
   call parse_input_variable(imeasure,"imeasure",finput,default=.true.,&
        comment="Bool to perform measurements. T for post-processing.")
-    call parse_input_variable(irun,"irun",finput,default=.true.,&
+  call parse_input_variable(irun,"irun",finput,default=.true.,&
        comment="Bool to run DMRG. F for post-processing")
   call parse_input_variable(ts,"TS",finput,default=-0.5d0,comment="Hopping amplitude")
   call parse_input_variable(alpha,"alpha",finput,default=1d0,comment="bandwidth ratio")
@@ -39,13 +41,17 @@ program hubbard_1d
   call parse_input_variable(lambda,"LAMBDA",finput,default=0d0,comment="off-diagonal amplitude")
 
   call read_input(finput)
+  
+  if(Nspin/=2)stop "Use of this code requires Nspin=2. STOP"
+
 
   if(Imeasure)then
      save_block=.true.
      save_umat=.true.
   endif
 
-  Nso = Nspin*Norb
+  Nsites = 2*Ldmrg
+  Nso    = Nspin*Norb
   allocate(Hloc(Nso,Nso))
   allocate(Hlr(Nso,Nso))
   select case(Norb)
@@ -73,43 +79,57 @@ program hubbard_1d
   if(Irun)call run_DMRG()
 
 
-  if(imeasure)then
+  if(imeasure)then      
      !Post-processing and measure quantities:
      allocate(C(Norb,Nspin),N(Norb,Nspin))
-     P=myDot%operators%op(key="P"//myDot%okey(0,0,ilink='n'))
      do ispin=1,Nspin
         do iorb=1,Norb
            C(iorb,ispin) = myDot%operators%op(key="C"//myDot%okey(iorb,ispin,ilink='n'))
            N(iorb,ispin) = matmul(C(iorb,ispin)%dgr(),C(iorb,ispin))
         enddo
      enddo
-     allocate(Mvec(4*Norb),sz(Norb))
+     allocate(Mvec(3*Norb),sz(Norb))
      do iorb=1,Norb
         sz(iorb)          = 0.5d0*(n(iorb,1)-n(iorb,2))
         Mvec(iorb)        = n(iorb,1)+n(iorb,2)
         Mvec(iorb+Norb)   = matmul(n(iorb,1),n(iorb,2))
         Mvec(iorb+2*Norb) = matmul(sz(iorb),sz(iorb))
-        Mvec(iorb+3*Norb) = matmul(C(iorb,1),C(iorb,2))
      enddo
      !
      !
-     call Measure_DMRG(Mvec,file="n_d_s2z_pairVSj", pos=arange(1,Ldmrg))
+     call Measure_DMRG(Mvec,file="n_d_s2zVSj", pos=arange(1,Nsites))
      !
      !Measure <K>
      if(master)unit=fopen("K"//str(label_DMRG('u')),append=.true.)
-     call Init_measure_dmrg("K")
-     K = 0d0
-     do pos=1,Ldmrg-1
-        Pl  = Build_Op_DMRG(P,pos,set_basis=.true.)
-        Cl  = Build_Op_DMRG(C(1,1),pos,set_basis=.true.)
-        Tij = get_Tij()
-        Tij = Advance_Corr_DMRG(Tij,pos)
-        K   = K + Average_Op_DMRG(Tij,pos)
-        if(master)call eta(pos,Ldmrg-1)
+     call Measure_Energy_DMRG(Hlr,K,Eloc,Etotal,Kij,Hi)
+     if(master)write(unit,*)K,Eloc,Etotal
+     if(master)close(unit)
+     !
+     !The density matrix is flattened with io outermost and jo innermost.
+     if(master)print*,"measure density.density nn"
+     allocate(corr_values(Nso*Nso))
+     if(master)unit=fopen("nn_nnVSj"//str(label_DMRG('u')),append=.false.)
+     do i=1,Nsites-1
+         corr=Measure_DensityDensity_DMRG(i,i+1)
+         if(master)write(unit,*)i,flatten_correlation(corr)
      enddo
-     if(master)write(unit,*)K
+     if(master)close(unit)
+ 
+     if(master)print*,"measure density.density 1n"
+     if(master)unit=fopen("nn_1jVSj"//str(label_DMRG('u')),append=.false.)  
+     do j=1,Nsites-1
+         corr=Measure_DensityDensity_DMRG(1,j)
+         if(master)write(unit,*)j,flatten_correlation(corr)
+     enddo
+     if(master)close(unit)
+     !
      call End_measure_dmrg()
-     if(Master)close(unit)    
+     do ispin=1,Nspin
+      do iorb=1,Norb
+        call C(iorb,ispin)%free()
+        call N(iorb,ispin)%free()
+      enddo
+    enddo
   endif
 
 
@@ -121,16 +141,21 @@ program hubbard_1d
 
   contains
 
-    function get_Tij() result(Tij)
-      type(sparse_matrix) :: Tij
-      Tij = 2d0*Hlr(1,1)*(matmul(Cl%dgr(),Pl).x.C(1,1))  + 2d0*Hlr(1,1)*(matmul(Pl,Cl).x.C(1,1)%dgr())
-    end function get_Tij
+    function flatten_correlation(Cij) result(values)
+      real(8),intent(in) :: Cij(:,:)
+      real(8)            :: values(size(Cij))
+      integer            :: io,jo,k
+      k=0
+      do io=1,size(Cij,1)
+         do jo=1,size(Cij,2)
+            k=k+1
+            values(k)=Cij(io,jo)
+         enddo
+      enddo
+    end function flatten_correlation
 
 
 end program hubbard_1d
-
-
-
 
 
 
