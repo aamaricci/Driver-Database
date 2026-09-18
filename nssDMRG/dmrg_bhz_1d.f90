@@ -164,7 +164,6 @@ contains
       i = ic - r / 2
       j = ic + (r + 1) / 2        
       if(master) write(unit,*) abs(i-j), Cij(i,j)
-      if(master) call eta(r, ic - 1)
     enddo
     if(master) close(unit)
 
@@ -183,7 +182,6 @@ contains
       enddo
       if (count > 0) Cavg(r) = sum_corr /dble(count)
       if(master) write(unit,*) r, Cavg(r)
-      if(master) call eta(r, Nsites - 2*cut)
     enddo
     if(master) close(unit)
     deallocate(Cavg)
