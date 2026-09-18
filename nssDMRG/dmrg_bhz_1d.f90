@@ -10,7 +10,7 @@ program BHZ_1d
   character(len=64)                              :: finput
   integer                                        :: i,j,unit,iorb,ispin,Nsites,N3d
   real(8)                                        :: eh,mh,lambda,K
-  real(8)                                        :: Eloc,Etot
+  real(8)                                        :: Eloc,Etot,Product
   type(site)                                     :: Dot
   complex(8),dimension(4,4)                      :: GammaZ,GammaX
   complex(8),dimension(:,:),allocatable          :: Hloc,Hlr
@@ -20,7 +20,7 @@ program BHZ_1d
   complex(8)                                     :: Corr
   integer                                        :: irank,comm,rank,ierr
   logical                                        :: master,imeasure,irun
-
+  real(8),dimension(:,:),allocatable             :: dqs
 
 #ifdef _MPI  
   call init_MPI()
@@ -107,6 +107,20 @@ program BHZ_1d
      Tx = Tx + 0.5d0*(matmul(C(1,2)%dgr(),C(2,2))+matmul(C(2,2)%dgr(),C(1,2)))
      call get_correlations("tx.tx",Tx,[0d0,0d0],Tx,[0d0,0d0])
      !
+     if(master)print*,"<Tz_i.Tz_{i+1}.Tz_j.Tz_{j+1}>"
+     allocate(dqs(2,4));dqs=0d0
+     if(master)unit=fopen("O4fz.O4fz_ij"//str(label_DMRG('u')),append=.true.)
+     call start_timer()
+     do i=1,Nsites-1
+      do j=i,Nsites-1
+        product = dreal(Measure_Product_DMRG([Tz,Tz,Tz,Tz],dqs,["none","none","none","none"],[i,i+1,j,j+1]))
+        if(master)write(unit,*)i,j,product
+      enddo
+      if(master)write(unit,*)""
+      if(master)call eta(i,Nsites-1)
+     enddo
+     call stop_timer()
+     
      !Measure energies: <K>,<Hloc>
      if(master)print*,"measure energies"
      if(master)unit=fopen("Ekin_Eloc_Etot"//str(label_DMRG('u')),append=.true.)
@@ -148,16 +162,21 @@ contains
     allocate(Cij(Nsites,Nsites))
     Cij=zero
     !Catch them all..
+    call start_timer()
     do i=1,Nsites
-      do j=1,Nsites
+      Cij(i,i) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,i))
+      do j=i+1,Nsites
         Cij(i,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,j))
+        Cij(j,i) = Cij(i,j)
       enddo
       if(master) call eta(i,Nsites)         
     enddo
+    call stop_timer()
     if(master) call splot3d(str(label)//"_ij"//str(label_DMRG('u')), 1d0*arange(1,Nsites), 1d0*arange(1,Nsites), Cij)
-
+    !
+    !Plot <O_i.O_j>
     if(master) call splot(str(label)//"_1j"//str(label_DMRG('u')), 1d0*arange(1,Nsites), Cij(1,:))
-
+    !Plot <O_i.O_j> with |j-i| as Manhattan distance
     if(master) unit = fopen(str(label)//"_r"//str(label_DMRG('u')), append=.false.)
     ic = Nsites / 2      
     do r = 1, ic - 1
@@ -166,8 +185,7 @@ contains
       if(master) write(unit,*) abs(i-j), Cij(i,j)
     enddo
     if(master) close(unit)
-
-
+    !Plot <av{O_i.O_j}> average over radius R as a function of R
     if(master) unit = fopen(str(label)//"_Rav"//str(label_DMRG('u')), append=.false.)      
     cut = max(2, Nsites / 10) 
     allocate(Cavg(Nsites - 2*cut))
