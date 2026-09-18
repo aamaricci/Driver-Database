@@ -99,8 +99,8 @@ program hubbard_1d
      !
      call Measure_DMRG(Mvec,file="n_d_s2zVSj", pos=arange(1,Nsites))
      !
-     !Measure <K>
-     if(master)unit=fopen("K"//str(label_DMRG('u')),append=.true.)
+     !Measure <K>,<Hloc>
+     if(master)unit=fopen("Ekin_Eloc_Etot"//str(label_DMRG('u')),append=.true.)
      call Measure_Energy_DMRG(Hlr,K,Eloc,Etotal,Kij,Hi)
      if(master)write(unit,*)K,Eloc,Etotal
      if(master)close(unit)
@@ -117,7 +117,7 @@ program hubbard_1d
  
      if(master)print*,"measure density.density 1n"
      if(master)unit=fopen("nn_1jVSj"//str(label_DMRG('u')),append=.false.)  
-     do j=1,Nsites-1
+     do j=1,Nsites
          corr=Measure_DensityDensity_DMRG(1,j)
          if(master)write(unit,*)j,flatten_correlation(corr)
      enddo
