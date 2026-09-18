@@ -7,7 +7,7 @@ program BHZ_1d
   implicit none
 
   integer                                        :: Nso
-  character(len=64)                              :: finput,ctype
+  character(len=64)                              :: finput
   integer                                        :: i,j,unit,iorb,ispin,Nsites,N3d
   real(8)                                        :: eh,mh,lambda,K
   real(8)                                        :: Eloc,Etot
@@ -34,7 +34,6 @@ program BHZ_1d
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
   call parse_input_variable(irun,"irun",finput,default=.true.,comment="Bool to run DMRG. F for post-processing")
   call parse_input_variable(imeasure,"imeasure",finput,default=.true.,comment="Bool to perform measurements. T for post-processing.")
-  call parse_input_variable(ctype,"CTYPE",finput,default="none",comment="String to set which Correlation length to get. none=|i-j|, mean=circular average; 1j:i=1, any j; 3d: any i,j")
   call parse_input_variable(mh,"MH",finput,default=0.5d0)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.3d0)
   call read_input(finput)
@@ -148,59 +147,46 @@ contains
     !
     allocate(Cij(Nsites,Nsites))
     Cij=zero
-    !
-    select case(ctype)
-    case default
-      if(master) unit = fopen(str(label)//"_r"//str(label_DMRG('u')), append=.false.)
-      ic = Nsites / 2      
-      ! r span  1 to Nsites/2-1:      
-      do r = 1, ic - 1
-        i = ic - r / 2
-        j = ic + (r + 1) / 2        
-        Cij(i,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,j))
-        if(master) write(unit,*) abs(i-j), Cij(i,j)
-        if(master) call eta(r, ic - 1)
-      enddo
-      if(master) close(unit)
-
-    case("mean")
-      if(master) unit = fopen(str(label)//"_Rav"//str(label_DMRG('u')), append=.false.)      
-      ! Taglio dei bordi: scarta i primi e ultimi 'cut' siti (es. 5% della catena)
-      cut = max(2, Nsites / 5) 
-      allocate(Cavg(Nsites - 2*cut))
-      Cavg = zero
-      do r = 1, Nsites - 2*cut
-        sum_corr = zero
-        count    = 0
-        do i = 1+cut, Nsites-cut-r
-          j = i + r
-          sum_corr = sum_corr + dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,j))
-          count    = count + 1
-        enddo
-        if (count > 0) Cavg(r) = sum_corr /dble(count)
-        if(master) write(unit,*) r, Cavg(r)
-        if(master) call eta(r, Nsites - 2*cut)
-      enddo
-      if(master) close(unit)
-      deallocate(Cavg)
-
-    case("1j")
+    !Catch them all..
+    do i=1,Nsites
       do j=1,Nsites
-        Cij(1,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,1,j))
-        if(master) call eta(j,Nsites)
+        Cij(i,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,j))
       enddo
-      if(master) call splot(str(label)//"_1j"//str(label_DMRG('u')), 1d0*arange(1,Nsites), Cij(1,:))
+      if(master) call eta(i,Nsites)         
+    enddo
+    if(master) call splot3d(str(label)//"_ij"//str(label_DMRG('u')), 1d0*arange(1,Nsites), 1d0*arange(1,Nsites), Cij)
 
-    case("3d")
-      do i=1,Nsites
-        do j=1,Nsites
-          Cij(i,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,j))
-        enddo
-        if(master) call eta(i,Nsites)         
+    if(master) call splot(str(label)//"_1j"//str(label_DMRG('u')), 1d0*arange(1,Nsites), Cij(1,:))
+
+    if(master) unit = fopen(str(label)//"_r"//str(label_DMRG('u')), append=.false.)
+    ic = Nsites / 2      
+    do r = 1, ic - 1
+      i = ic - r / 2
+      j = ic + (r + 1) / 2        
+      if(master) write(unit,*) abs(i-j), Cij(i,j)
+      if(master) call eta(r, ic - 1)
+    enddo
+    if(master) close(unit)
+
+
+    if(master) unit = fopen(str(label)//"_Rav"//str(label_DMRG('u')), append=.false.)      
+    cut = max(2, Nsites / 10) 
+    allocate(Cavg(Nsites - 2*cut))
+    Cavg = zero
+    do r = 1, Nsites - 2*cut
+      sum_corr = zero
+      count    = 0
+      do i = 1+cut, Nsites-cut-r
+        j = i + r
+        sum_corr = sum_corr + Cij(i,j)
+        count    = count + 1
       enddo
-      if(master) call splot3d(str(label)//"_ij"//str(label_DMRG('u')), 1d0*arange(1,Nsites), 1d0*arange(1,Nsites), Cij)
-
-    end select
+      if (count > 0) Cavg(r) = sum_corr /dble(count)
+      if(master) write(unit,*) r, Cavg(r)
+      if(master) call eta(r, Nsites - 2*cut)
+    enddo
+    if(master) close(unit)
+    deallocate(Cavg)
   end subroutine get_correlations
 
 end program BHZ_1d
