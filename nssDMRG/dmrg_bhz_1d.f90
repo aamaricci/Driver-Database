@@ -19,7 +19,7 @@ program BHZ_1d
   type(sparse_matrix)                            :: Tz,Kij,Hi,Tx,O4f
   complex(8)                                     :: Corr
   integer                                        :: irank,comm,rank,ierr
-  logical                                        :: master,imeasure,irun
+  logical                                        :: master,imeasure,irun,get3Dcorr,getAVcorr
   real(8),dimension(:,:),allocatable             :: dqs
 
 #ifdef _MPI  
@@ -36,6 +36,8 @@ program BHZ_1d
   call parse_input_variable(imeasure,"imeasure",finput,default=.true.,comment="Bool to perform measurements. T for post-processing.")
   call parse_input_variable(mh,"MH",finput,default=0.5d0)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.3d0)
+  call parse_input_variable(getAVcorr,"GETAVCORR",finput,default=.false.)
+  call parse_input_variable(get3dcorr,"GET3DCORR",finput,default=.false.)
   call read_input(finput)
 
 
@@ -162,47 +164,72 @@ contains
     allocate(Cij(Nsites,Nsites))
     Cij=zero
     !Catch them all..
-    call start_timer()
-    do i=1,Nsites
-      Cij(i,i) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,i))
-      do j=i+1,Nsites
-        Cij(i,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,j))
-        Cij(j,i) = Cij(i,j)
-      enddo
-      if(master) call eta(i,Nsites)         
+    
+    !Plot <O_1.O_j>
+    if(master)call start_timer("<O1.Oj>")
+    do j=1,Nsites
+      Cij(1,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,1,j,connected=.true.))
+      if(master)call eta(j,Nsites)
     enddo
-    call stop_timer()
-    if(master) call splot3d(str(label)//"_ij"//str(label_DMRG('u')), 1d0*arange(1,Nsites), 1d0*arange(1,Nsites), Cij)
-    !
-    !Plot <O_i.O_j>
+    if(master)call stop_timer()
     if(master) call splot(str(label)//"_1j"//str(label_DMRG('u')), 1d0*arange(1,Nsites), Cij(1,:))
+    !
+    !
     !Plot <O_i.O_j> with |j-i| as Manhattan distance
     if(master) unit = fopen(str(label)//"_r"//str(label_DMRG('u')), append=.false.)
+    if(master)call start_timer("<Oi.Oj>_|i-j|")
     ic = Nsites / 2      
     do r = 1, ic - 1
       i = ic - r / 2
-      j = ic + (r + 1) / 2        
+      j = ic + (r + 1) / 2
+      if(Cij(i,j)==zero)Cij(i,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,j,connected=.true.))
       if(master) write(unit,*) abs(i-j), Cij(i,j)
+      if(master)call eta(r,ic)
     enddo
+    if(master)call stop_timer()
     if(master) close(unit)
+    !
+    !
     !Plot <av{O_i.O_j}> average over radius R as a function of R
-    if(master) unit = fopen(str(label)//"_Rav"//str(label_DMRG('u')), append=.false.)      
-    cut = max(2, Nsites / 10) 
-    allocate(Cavg(Nsites - 2*cut))
-    Cavg = zero
-    do r = 1, Nsites - 2*cut
-      sum_corr = zero
-      count    = 0
-      do i = 1+cut, Nsites-cut-r
-        j = i + r
-        sum_corr = sum_corr + Cij(i,j)
-        count    = count + 1
+    if(getAVcorr)then
+      if(master) unit = fopen(str(label)//"_Rav"//str(label_DMRG('u')), append=.false.)   
+      if(master)call start_timer("<av{Oi.Oj}>_R")  
+      cut = 2   !max(2, Nsites / 2) 
+      allocate(Cavg(Nsites - 2*cut))
+      Cavg = zero
+      do r = 1, Nsites - 2*cut
+        sum_corr = zero
+        count    = 0
+        do i = 1+cut, Nsites-cut-r
+          j = i + r
+          if(Cij(i,j)==zero)Cij(i,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,j,connected=.true.))
+          sum_corr = sum_corr + Cij(i,j)
+          count    = count + 1
+        enddo
+        if (count > 0) Cavg(r) = sum_corr /dble(count)
+        if(master) write(unit,*) r, Cavg(r)
+        if(master)call eta(r,Nsites-2*cut)
       enddo
-      if (count > 0) Cavg(r) = sum_corr /dble(count)
-      if(master) write(unit,*) r, Cavg(r)
-    enddo
-    if(master) close(unit)
-    deallocate(Cavg)
+      if(master)call stop_timer()
+      if(master) close(unit)
+      deallocate(Cavg)
+    endif
+    !
+    !
+    if(get3dcorr)then
+      if(master)call start_timer()
+      do i=1,Nsites
+        if(Cij(i,j)==zero)Cij(i,i) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,i,connected=.true.))
+        do j=i+1,Nsites
+          if(Cij(i,j)==zero)Cij(i,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,j,connected=.true.))
+          Cij(j,i) = Cij(i,j)
+        enddo
+        if(master) call eta(i,Nsites)         
+      enddo
+      if(master)call stop_timer()
+      if(master) call splot3d(str(label)//"_ij"//str(label_DMRG('u')), 1d0*arange(1,Nsites), 1d0*arange(1,Nsites), Cij)
+    endif
+    !
   end subroutine get_correlations
 
 end program BHZ_1d
