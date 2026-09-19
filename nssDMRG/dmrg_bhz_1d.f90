@@ -112,7 +112,7 @@ program BHZ_1d
      if(master)print*,"<Tz_i.Tz_{i+1}.Tz_j.Tz_{j+1}>"
      allocate(dqs(2,4));dqs=0d0
      if(master)unit=fopen("O4fz.O4fz_ij"//str(label_DMRG('u')),append=.true.)
-     call start_timer()
+     if(master)call start_timer()
      do i=1,Nsites-1
       do j=i,Nsites-1
         product = dreal(Measure_Product_DMRG([Tz,Tz,Tz,Tz],dqs,["none","none","none","none"],[i,i+1,j,j+1]))
@@ -121,7 +121,7 @@ program BHZ_1d
       if(master)write(unit,*)""
       if(master)call eta(i,Nsites-1)
      enddo
-     call stop_timer()
+     if(master)call stop_timer()
      
      !Measure energies: <K>,<Hloc>
      if(master)print*,"measure energies"
@@ -187,7 +187,7 @@ contains
       if(master)call eta(r,ic)
     enddo
     if(master)call stop_timer()
-    if(master) close(unit)
+    if(master)close(unit)
     !
     !
     !Plot <av{O_i.O_j}> average over radius R as a function of R
