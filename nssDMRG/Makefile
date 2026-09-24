@@ -29,8 +29,8 @@ GLOB_INC+=$(shell pkg-config --cflags ${LIB_TB})
 GLOB_LIB+=$(shell pkg-config --libs ${LIB_TB})
 endif
 
-GLOB_INC+=$(shell pkg-config --cflags scifor)# libtcmalloc libprofiler)
-GLOB_LIB+=$(shell pkg-config --libs   scifor)# libtcmalloc libprofiler)
+#GLOB_INC+=$(shell pkg-config --cflags scifor)# libtcmalloc libprofiler)
+#GLOB_LIB+=$(shell pkg-config --libs   scifor)# libtcmalloc libprofiler)
 
 
 ifeq ($(PLAT),intel)

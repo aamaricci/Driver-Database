@@ -9,17 +9,17 @@ program BHZ_1d
   integer                                        :: Nso
   character(len=64)                              :: finput
   integer                                        :: i,j,unit,iorb,ispin,Nsites,N3d
-  real(8)                                        :: eh,mh,lambda,K
-  real(8)                                        :: Eloc,Etot,Product
+  real(8)                                        :: eh,mh,lambda
+  real(8)                                        :: Eloc,Etot,Product,Ekin,E0loc,Eint,Eshift
   type(site)                                     :: Dot
   complex(8),dimension(4,4)                      :: GammaZ,GammaX
   complex(8),dimension(:,:),allocatable          :: Hloc,Hlr
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
   type(sparse_matrix),dimension(:),allocatable   :: dens,docc,sz,s2z,Mvec
-  type(sparse_matrix)                            :: Tz,Kij,Hi,Tx,O4f
+  type(sparse_matrix)                            :: Tz,Tx,O4f,H0loc,Hint,Hshift
   complex(8)                                     :: Corr
   integer                                        :: irank,comm,rank,ierr
-  logical                                        :: master,imeasure,irun,get3Dcorr,getAVcorr,get1jcorr
+  logical                                        :: master,imeasure,irun,ienergy,getIJcorr,getAVcorr,get1jcorr
   real(8),dimension(:,:),allocatable             :: dqs
 
 #ifdef _MPI  
@@ -34,17 +34,18 @@ program BHZ_1d
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
   call parse_input_variable(irun,"irun",finput,default=.true.,comment="Bool to run DMRG. F for post-processing")
   call parse_input_variable(imeasure,"imeasure",finput,default=.true.,comment="Bool to perform measurements. T for post-processing.")
+  call parse_input_variable(ienergy,"ienergy",finput,default=.true.,comment="Bool to get energy measures. T for post-processing.")
   call parse_input_variable(mh,"MH",finput,default=0.5d0)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.3d0)
   call parse_input_variable(get1Jcorr,"GET1jCORR",finput,default=.false.)
   call parse_input_variable(getAVcorr,"GETAVCORR",finput,default=.false.)
-  call parse_input_variable(get3dcorr,"GET3DCORR",finput,default=.false.)
+  call parse_input_variable(getIJcorr,"GETIJCORR",finput,default=.false.)
   call read_input(finput)
 
 
   if(Nspin/=2.OR.Norb/=2)stop "Wrong setup from input file: Nspin=Norb=2 -> 4Spin-Orbitals"
 
-  if(Imeasure)then
+  if(Imeasure.OR.Ienergy)then
     save_block=.true.
     save_umat=.true.
   endif       
@@ -58,7 +59,7 @@ program BHZ_1d
   !>Local Hamiltonian:
   allocate(Hloc(Nso,Nso))
   Hloc = Mh*GammaZ
-  Dot  = electron_site(Hloc)
+  Dot  = electron_site(Hloc,H0loc=H0loc,Hint=Hint,Hshift=Hshift)
 
   !>Hopping Hamiltonian (i->i+1, right hop direction)
   if(allocated(Hlr))deallocate(Hlr)
@@ -122,24 +123,32 @@ program BHZ_1d
     !   if(master)write(unit,*)""
     !   if(master)call eta(i,Nsites-1)
     !  enddo
-    !  if(master)call stop_timer()
-     
-     !Measure energies: <K>,<Hloc>
-     if(master)print*,"measure energies"
-     if(master)unit=fopen("Ekin_Eloc_Etot"//str(label_DMRG('u')),append=.true.)
-     call Measure_Energy_DMRG(Hlr,K,Eloc,Etot,Kij)
-     if(master)write(unit,*)K,Eloc,Etot
-     if(master)close(unit)
+    !  if(master)call stop_timer()    
 
-
-     call End_Measure_DMRG()
      do ispin=1,Nspin
       do iorb=1,Norb
         call C(iorb,ispin)%free()
         call N(iorb,ispin)%free()
       enddo
-    enddo
+     enddo
+    !
+     call End_Measure_DMRG()
   endif
+
+  if(ienergy)then
+    !Measure energies: <K>,<Hloc>
+    call Init_Measure_DMRG()
+    if(master)print*,"measure energies"
+    if(master)unit=fopen("Ekin_Eloc_Etot"//str(label_DMRG('u')),append=.true.)
+    call Measure_Energy_DMRG(Hlr,Ekin,Eloc,Etot,&
+       H0loc=H0loc,Hint=Hint,Hshift=Hshift,&
+       E0loc=E0loc,Eint=Eint,Eshift=Eshift)
+    if(master)write(unit,*)Ekin,Eloc,Etot,E0loc,Eint,Eshift
+    if(master)close(unit)
+    call End_Measure_DMRG()
+  endif
+
+
 
 
   !Finalize DMRG
@@ -220,7 +229,7 @@ contains
     endif
     !
     !
-    if(get3dcorr)then
+    if(getIJcorr)then
       if(master)call start_timer()
       do i=1,Nsites
         if(Cij(i,j)==zero)Cij(i,i) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,i,connected=.true.))
