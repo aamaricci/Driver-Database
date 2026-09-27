@@ -93,6 +93,11 @@ bhz:
 	$(call colorecho,"created MPI dmrg_bhz_1d in  $(DIREXE)", 2)
 	@echo ""
 
+bhz_post: FLAG:=${FFLAG} ${FPPMPI}
+bhz_post:
+	@echo "compiling dmrg_bhz_1d_post.f90"
+	$(FC) -o $(DIREXE)/dmrg_bhz_1d_post dmrg_bhz_1d_post.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+
 
 mpi: FLAG:=${FFLAG} ${FPPMPI}
 mpi: spin hubbard

@@ -104,12 +104,7 @@ program BHZ_1d
      !Measure <Sz(i).Sz(j)>
      if(master)print*,"<Sz_i.Sz_j>"
      call get_correlations("sz.sz",Sz(1)+Sz(2),[0d0,0d0],Sz(1)+Sz(2),[0d0,0d0])
-     !Measure <Tx(i).Tx(j)>
-     !Tx = 1/2\sum_\sigma c^+_{1i\sigma}.c_{2i\sigma} + c^+_{2i\sigma}.c_{1i\sigma}
-     if(master)print*,"<Tx_i.Tx_j>"
-     Tx = 0.5d0*(matmul(C(1,1)%dgr(),C(2,1))+matmul(C(2,1)%dgr(),C(1,1)))
-     Tx = Tx + 0.5d0*(matmul(C(1,2)%dgr(),C(2,2))+matmul(C(2,2)%dgr(),C(1,2)))
-     call get_correlations("tx.tx",Tx,[0d0,0d0],Tx,[0d0,0d0])
+     !
      !
     !  if(master)print*,"<Tz_i.Tz_{i+1}.Tz_j.Tz_{j+1}>"
     !  allocate(dqs(2,4));dqs=0d0
