@@ -9,6 +9,7 @@ program BHZ_1d_post
   implicit none
   integer                                        :: Nso,Nsites,iorb,ispin,unit,comm,rank
   character(len=64)                              :: finput
+  real(8)                                        :: Eloc,Etot,Ekin,E0loc,Eint,Eshift
   real(8)                                        :: mh,lambda
   type(site)                                     :: Dot
   complex(8),dimension(4,4)                      :: GammaZ,GammaX
