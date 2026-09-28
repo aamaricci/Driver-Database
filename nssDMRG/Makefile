@@ -95,8 +95,12 @@ bhz:
 
 bhz_post: FLAG:=${FFLAG} ${FPPMPI}
 bhz_post:
-	@echo "compiling dmrg_bhz_1d_post.f90"
-	$(FC) -o $(DIREXE)/dmrg_bhz_1d_post dmrg_bhz_1d_post.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	@echo "compiling post_bhz_1d.f90"
+	$(FC) -o $(DIREXE)/post_bhz_1d post_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	cp -v bhz_entanglement_analysis.py ${DIREXE}
+	$(call colorecho,"created MPI post_bhz_1d in  $(DIREXE)", 2)
+	$(call colorecho,"copied bhz_entanglement_analysis.py in $(DIREXE)", 2)
+	@echo ""
 
 
 mpi: FLAG:=${FFLAG} ${FPPMPI}

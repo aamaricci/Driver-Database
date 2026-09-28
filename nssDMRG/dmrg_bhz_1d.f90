@@ -97,15 +97,14 @@ program BHZ_1d
      !Measure <Tz>,<N>,<D>,<Sz^2> (write to file integrated)
      call Measure_DMRG([Tz,Mvec],file="tz_n_d_s2zVSj", pos=arange(1,Nsites))
      !
-
-     !Measure <Tz(1).Tz(j)>-<Tz(1)><Tz(j)>
-     if(master)print*,"<Tz_i.Tz_j>-<Tz_i><Tz_j>"     
-     call get_correlations("tz.tz",Tz,[0d0,0d0],Tz,[0d0,0d0])
-     !Measure <Sz(i).Sz(j)>
-     if(master)print*,"<Sz_i.Sz_j>"
-     call get_correlations("sz.sz",Sz(1)+Sz(2),[0d0,0d0],Sz(1)+Sz(2),[0d0,0d0])
-     !
-     !
+    !  !Measure <Tz(1).Tz(j)>-<Tz(1)><Tz(j)>
+    !  if(master)print*,"<Tz_i.Tz_j>-<Tz_i><Tz_j>"     
+    !  call get_correlations("tz.tz",Tz,[0d0,0d0],Tz,[0d0,0d0])
+    !  !Measure <Sz(i).Sz(j)>
+    !  if(master)print*,"<Sz_i.Sz_j>"
+    !  call get_correlations("sz.sz",Sz(1)+Sz(2),[0d0,0d0],Sz(1)+Sz(2),[0d0,0d0])
+    !
+    ! 
     !  if(master)print*,"<Tz_i.Tz_{i+1}.Tz_j.Tz_{j+1}>"
     !  allocate(dqs(2,4));dqs=0d0
     !  if(master)unit=fopen("O4fz.O4fz_ij"//str(label_DMRG('u')),append=.true.)
@@ -119,7 +118,6 @@ program BHZ_1d
     !   if(master)call eta(i,Nsites-1)
     !  enddo
     !  if(master)call stop_timer()    
-
      do ispin=1,Nspin
       do iorb=1,Norb
         call C(iorb,ispin)%free()

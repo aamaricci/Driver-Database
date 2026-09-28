@@ -15,7 +15,7 @@ program BHZ_1d_post
   complex(8),dimension(:,:),allocatable          :: Hloc,Hlr
   type(sparse_matrix),dimension(:,:),allocatable :: C,N
   type(sparse_matrix)                            :: Tx,Ty,Tz,Tx2,Ty2,Tz2,Hint,H0loc,Hshift
-  logical                                        :: master,irun,imeasure,ienergy,getAVcorr,get1Jcorr,getIJcorr
+  logical                                        :: master,irun,imeasure,ienergy,getAVcorr,get1Jcorr,getIJcorr,getWick
 #ifdef _MPI
   call init_MPI(); comm=MPI_COMM_WORLD; call StartMsg_MPI(comm)
   rank=get_Rank_MPI(comm); master=get_Master_MPI(comm)
@@ -31,6 +31,8 @@ program BHZ_1d_post
   call parse_input_variable(get1Jcorr,"GET1jCORR",finput,default=.false.)
   call parse_input_variable(getAVcorr,"GETAVCORR",finput,default=.false.)
   call parse_input_variable(getIJcorr,"GETIJCORR",finput,default=.false.)
+  call parse_input_variable(getWick,"GETWICK",finput,default=.false.,&
+       comment="Compute local inter-orbital Wick residuals")
   call read_input(finput)
   !
   if(Nspin/=2 .or. Norb/=2) stop "BHZ post driver requires Nspin=Norb=2"
@@ -64,16 +66,30 @@ program BHZ_1d_post
   Ty2=matmul(Ty,Ty)
   Tz2=matmul(Tz,Tz)
   !
-  call get_correlations("tx.tx",Tx,[0d0,0d0],Tx,[0d0,0d0])
   call Measure_DMRG([Tx2,Ty2,Tz2],file="orbital_fluctuations",pos=arange(1,Nsites))
-  call Measure_DMRG([Tx,Ty],file="in_plane_orbital_polarization",pos=arange(1,Nsites))
+  ! call Measure_DMRG([Tx,Ty],file="in_plane_orbital_polarization",pos=arange(1,Nsites))
+  !
+  if(master)print*,"<Sz_i.Sz_j>_c"
+  call get_correlations("sz.sz",Sz(1)+Sz(2),[0d0,0d0],Sz(1)+Sz(2),[0d0,0d0])
+  if(master)print*,"<Tz_i.Tz_j>_c"     
+  call get_correlations("tz.tz",Tz,[0d0,0d0],Tz,[0d0,0d0])
+  if(master)print*,"<Tx_i.Tx_j>_c"
   call get_correlations("tx.tx",Tx)
+  if(master)print*,"<Ty_i.Ty_j>_c"
   call get_correlations("ty.ty",Ty)
+  !
+  !Get T_\perp(ij)=<T_x(i).T_x(j)+T_y(i).T_y(j)> and \sum_ij <T_perp(ij)>
   call get_perp_correlations(Tx,Ty)
-  do ispin=1,Nspin; do iorb=1,Norb
-    call C(iorb,ispin)%free(); 
-    call N(iorb,ispin)%free()
-  enddo; enddo
+  if(getWick) call get_wick_residuals(C)
+  !
+  !Free the operators:
+  do ispin=1,Nspin
+    do iorb=1,Norb
+      call C(iorb,ispin)%free(); 
+      call N(iorb,ispin)%free()
+    enddo 
+  enddo
+  !
   call End_Measure_DMRG()
   !
   !
@@ -85,17 +101,21 @@ program BHZ_1d_post
 contains
 
   subroutine get_correlations(label,Op)
-    character(len=*),intent(in) :: label
+    character(len=*),intent(in)    :: label
     type(sparse_matrix),intent(in) :: Op
-    integer :: i,j,r,ic
-    real(8) :: value
+    integer                        :: i,j,r,ic
+    real(8)                        :: value
     if(master) unit=fopen(str(label)//"_r"//str(label_DMRG('u')),append=.false.)
     ic=Nsites/2
+    if(master)call start_timer("<"//str(label)//">_|i-j|")
     do r=1,ic-1
-      i=ic-r/2; j=ic+(r+1)/2
+      i=ic-r/2
+      j=ic+(r+1)/2
       value=dreal(Measure_Corr_DMRG(Op,[0d0,0d0],Op,[0d0,0d0],i,j,connected=.true.))
       if(master) write(unit,*) abs(i-j),value
+      if(master) call eta(r,ic-1)
     enddo
+    if(master)call stop_timer()
     if(master) close(unit)
   end subroutine get_correlations
 
@@ -103,25 +123,71 @@ contains
   ! integrated susceptibility sum_{ij} C_perp(i,j)/Nsites.
   subroutine get_perp_correlations(OpX,OpY)
     type(sparse_matrix),intent(in) :: OpX,OpY
-    integer :: i,j,r,ic
-    real(8) :: value,chi
+    integer                        :: i,j,r,ic
+    real(8)                        :: value,chi
     if(master) unit=fopen("tperp.tperp_r"//str(label_DMRG('u')),append=.false.)
-    ic=Nsites/2; chi=0d0
+    if(master)call start_timer("<T_perp.Tperp>_|i-j|")
+    ic=Nsites/2; 
     do r=1,ic-1
       i=ic-r/2; j=ic+(r+1)/2
       value=dreal(Measure_Corr_DMRG(OpX,[0d0,0d0],OpX,[0d0,0d0],i,j,connected=.true.))
       value=value+dreal(Measure_Corr_DMRG(OpY,[0d0,0d0],OpY,[0d0,0d0],i,j,connected=.true.))
       if(master) write(unit,*) abs(i-j),value
+      if(master) call eta(r,ic-1)
+    enddo
+    if(master)call stop_timer()
+    if(master) close(unit)
+    !
+    !
+    ! if(master)call start_timer("Chi_perp")
+    ! chi=0d0 !assuming i<-->j are symmetric
+    ! do i=1,Nsites
+    !   chi=chi+dreal(Measure_Corr_DMRG(OpX,[0d0,0d0],OpX,[0d0,0d0],i,i,connected=.true.))
+    !   chi=chi+dreal(Measure_Corr_DMRG(OpY,[0d0,0d0],OpY,[0d0,0d0],i,i,connected=.true.))
+    !   do j=i+1,Nsites
+    !     chi=chi+2d0*dreal(Measure_Corr_DMRG(OpX,[0d0,0d0],OpX,[0d0,0d0],i,j,connected=.true.))
+    !     chi=chi+2d0*dreal(Measure_Corr_DMRG(OpY,[0d0,0d0],OpY,[0d0,0d0],i,j,connected=.true.))
+    !   enddo
+    !   if(master) call eta(i,Nsites)
+    ! enddo
+    ! if(master)call stop_timer()
+    ! if(master) then
+    !   unit=fopen("chi_perp"//str(label_DMRG('u')),append=.false.)
+    !   write(unit,*) chi/dble(Nsites)
+    !   close(unit)
+    ! endif
+  end subroutine get_perp_correlations
+
+  ! For a number-conserving Gaussian state Wick's theorem gives
+  ! <c1^dag c2^dag c2 c1> = n1*n2
+  !   - <c1^dag c2><c2^dag c1>.
+  ! The residual below is zero for a Gaussian state.  We sample local
+  ! inter-orbital density channels; a complete tensor scales as O(L^4).
+  subroutine get_wick_residuals(Cop)
+    type(sparse_matrix),dimension(:,:),intent(in) :: Cop
+    integer                                       :: i,unit,ispin,jspin
+    real(8)                                       :: exact,wick,residual,n1,n2,coh12,coh21
+    real(8),dimension(2,4)                        :: dqs
+    character(len=16),dimension(4)                :: kinds
+    dqs=0d0;
+    kinds=["none","none","none","none"]
+    if(master) unit=fopen("wick_residual"//str(label_DMRG('u')),append=.false.)
+    if(master) write(unit,*)"# site sigma sigma_prime exact wick residual"
+    do i=1,Nsites; 
+      do ispin=1,Nspin; 
+        do jspin=1,Nspin
+            exact=dreal(Measure_Product_DMRG([Cop(1,ispin)%dgr(),Cop(2,jspin)%dgr(),&
+            Cop(2,jspin),Cop(1,ispin)],dqs,kinds,[i,i,i,i]))
+            n1=dreal(Measure_Corr_DMRG(Cop(1,ispin)%dgr(),[0d0,0d0],Cop(1,ispin),[0d0,0d0],i,i,connected=.false.))
+            n2=dreal(Measure_Corr_DMRG(Cop(2,jspin)%dgr(),[0d0,0d0],Cop(2,jspin),[0d0,0d0],i,i,connected=.false.))
+            coh12=dreal(Measure_Corr_DMRG(Cop(1,ispin)%dgr(),[0d0,0d0],Cop(2,jspin),[0d0,0d0],i,i,connected=.false.))
+            coh21=dreal(Measure_Corr_DMRG(Cop(2,jspin)%dgr(),[0d0,0d0],Cop(1,ispin),[0d0,0d0],i,i,connected=.false.))
+            wick=n1*n2-coh12*coh21; 
+            residual=exact-wick
+            if(master) write(unit,*)i,ispin,jspin,exact,wick,residual
+        enddo; 
+      enddo; 
     enddo
     if(master) close(unit)
-    do i=1,Nsites; do j=1,Nsites
-      chi=chi+dreal(Measure_Corr_DMRG(OpX,[0d0,0d0],OpX,[0d0,0d0],i,j,connected=.true.))
-      chi=chi+dreal(Measure_Corr_DMRG(OpY,[0d0,0d0],OpY,[0d0,0d0],i,j,connected=.true.))
-    enddo; enddo
-    if(master) then
-      unit=fopen("chi_perp"//str(label_DMRG('u')),append=.false.)
-      write(unit,*) chi/dble(Nsites)
-      close(unit)
-    endif
-  end subroutine get_perp_correlations
+  end subroutine get_wick_residuals
 end program BHZ_1d_post
