@@ -14,7 +14,7 @@ program BHZ_1d_post
   complex(8),dimension(4,4)                      :: GammaZ,GammaX
   complex(8),dimension(:,:),allocatable          :: Hloc,Hlr
   type(sparse_matrix),dimension(:,:),allocatable :: C,N
-  type(sparse_matrix)                            :: Tx,Ty,Tz,Tx2,Ty2,Tz2,Hint,H0loc,Hshift
+  type(sparse_matrix)                            :: Sz,Tx,Ty,Tz,Tx2,Ty2,Tz2,Hint,H0loc,Hshift
   logical                                        :: master,irun,imeasure,ienergy,getAVcorr,get1Jcorr,getIJcorr,getWick
 #ifdef _MPI
   call init_MPI(); comm=MPI_COMM_WORLD; call StartMsg_MPI(comm)
@@ -54,6 +54,7 @@ program BHZ_1d_post
     C(iorb,ispin)=Dot%operators%op(key="C"//Dot%okey(iorb,ispin))
     N(iorb,ispin)=matmul(C(iorb,ispin)%dgr(),C(iorb,ispin))
   enddo; enddo
+  Sz= N(1,1)+N(2,1)-N(1,2)-N(2,2)
   Tz=(N(2,1)+N(2,2)-N(1,1)-N(1,2))/2d0
   !
   Tx=0.5d0*(matmul(C(1,1)%dgr(),C(2,1))+matmul(C(2,1)%dgr(),C(1,1)))
@@ -70,9 +71,9 @@ program BHZ_1d_post
   ! call Measure_DMRG([Tx,Ty],file="in_plane_orbital_polarization",pos=arange(1,Nsites))
   !
   if(master)print*,"<Sz_i.Sz_j>_c"
-  call get_correlations("sz.sz",Sz(1)+Sz(2),[0d0,0d0],Sz(1)+Sz(2),[0d0,0d0])
+  call get_correlations("sz.sz",Sz)
   if(master)print*,"<Tz_i.Tz_j>_c"     
-  call get_correlations("tz.tz",Tz,[0d0,0d0],Tz,[0d0,0d0])
+  call get_correlations("tz.tz",Tz)
   if(master)print*,"<Tx_i.Tx_j>_c"
   call get_correlations("tx.tx",Tx)
   if(master)print*,"<Ty_i.Ty_j>_c"
