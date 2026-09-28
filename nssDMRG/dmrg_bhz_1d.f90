@@ -132,7 +132,7 @@ program BHZ_1d
     !Measure energies: <K>,<Hloc>
     call Init_Measure_DMRG()
     if(master)print*,"measure energies"
-    if(master)unit=fopen("Ekin_Eloc_Etot"//str(label_DMRG('u')),append=.true.)
+    if(master)unit=fopen("Ekin_Eloc_Etot"//str(label_DMRG('u')),append=.false.)
     call Measure_Energy_DMRG(Hlr,Ekin,Eloc,Etot,&
        H0loc=H0loc,Hint=Hint,Hshift=Hshift,&
        E0loc=E0loc,Eint=Eint,Eshift=Eshift)

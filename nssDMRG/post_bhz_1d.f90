@@ -25,7 +25,7 @@ program BHZ_1d_post
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
   call parse_input_variable(irun,"irun",finput,default=.false.)
   call parse_input_variable(imeasure,"imeasure",finput,default=.true.)
-  call parse_input_variable(ienergy,"ienergy",finput,default=.false.)
+  call parse_input_variable(ienergy,"ienergy",finput,default=.true.)
   call parse_input_variable(mh,"MH",finput,default=0.5d0)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.3d0)
   call parse_input_variable(get1Jcorr,"GET1jCORR",finput,default=.false.)
@@ -94,6 +94,17 @@ program BHZ_1d_post
   call End_Measure_DMRG()
   !
   !
+  if(ienergy)then
+    call Init_Measure_DMRG()
+    if(master)print*,"measure energies"
+    if(master)unit=fopen("Ekin_Eloc_Etot"//str(label_DMRG('u')),append=.false.)
+    call Measure_Energy_DMRG(Hlr,Ekin,Eloc,Etot,&
+       H0loc=H0loc,Hint=Hint,Hshift=Hshift,&
+       E0loc=E0loc,Eint=Eint,Eshift=Eshift)
+    if(master)write(unit,*)Ekin,Eloc,Etot,E0loc,Eint,Eshift
+    if(master)close(unit)
+    call End_Measure_DMRG()
+  endif
   !
   call finalize_dmrg()
 #ifdef _MPI
