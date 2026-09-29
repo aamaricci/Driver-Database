@@ -16,7 +16,7 @@ program BHZ_1d_post
   complex(8),dimension(:,:),allocatable          :: Hloc,Hlr
   type(sparse_matrix),dimension(:,:),allocatable :: C,N
   type(sparse_matrix)                            :: Sz,Tx,Ty,Tz,Tx2,Ty2,Tz2,Hint,H0loc,Hshift
-  logical                                        :: master,irun,imeasure,ienergy,getAVcorr,get1Jcorr,getIJcorr,getWick
+  logical                                        :: master,imeasure,ienergy,getWick,getChiPerp
 #ifdef _MPI
   call init_MPI(); comm=MPI_COMM_WORLD; call StartMsg_MPI(comm)
   rank=get_Rank_MPI(comm); master=get_Master_MPI(comm)
@@ -24,16 +24,14 @@ program BHZ_1d_post
   master=.true.
 #endif
   call parse_cmd_variable(finput,"FINPUT",default='DMRG.conf')
-  call parse_input_variable(irun,"irun",finput,default=.false.)
-  call parse_input_variable(imeasure,"imeasure",finput,default=.true.)
-  call parse_input_variable(ienergy,"ienergy",finput,default=.true.)
+  call parse_input_variable(Imeasure,"Imeasure",finput,default=.false.)
+  call parse_input_variable(ienergy,"IENERGY",finput,default=.true.)
+  call parse_input_variable(getWick,"GETWICK",finput,default=.false.,&
+  comment="Compute local inter-orbital Wick residuals") 
+  call parse_input_variable(getChiPerp,"getChiPerp",finput,default=.false.,&
+  comment="Compute total perpendicular fluctuations estimate")
   call parse_input_variable(mh,"MH",finput,default=0.5d0)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.3d0)
-  call parse_input_variable(get1Jcorr,"GET1jCORR",finput,default=.false.)
-  call parse_input_variable(getAVcorr,"GETAVCORR",finput,default=.false.)
-  call parse_input_variable(getIJcorr,"GETIJCORR",finput,default=.false.)
-  call parse_input_variable(getWick,"GETWICK",finput,default=.false.,&
-       comment="Compute local inter-orbital Wick residuals")
   call read_input(finput)
   !
   if(Nspin/=2 .or. Norb/=2) stop "BHZ post driver requires Nspin=Norb=2"
@@ -68,10 +66,11 @@ program BHZ_1d_post
   Ty2=matmul(Ty,Ty)
   Tz2=matmul(Tz,Tz)
   !
-  if(getWick) then
-    call get_wick_residuals(C)
-    !call get_perp_chi(Tx,Ty)
-  else
+  if(getWick) call get_wick_residuals(C)
+
+  if(getChiPerp)call get_perp_chi(Tx,Ty)
+
+  if(Imeasure)then
     call Measure_DMRG([Tx2,Ty2,Tz2],file="orbital_fluctuations",pos=arange(1,Nsites))
     ! call Measure_DMRG([Tx,Ty],file="in_plane_orbital_polarization",pos=arange(1,Nsites))
     !
