@@ -68,21 +68,25 @@ program BHZ_1d_post
   Ty2=matmul(Ty,Ty)
   Tz2=matmul(Tz,Tz)
   !
-  call Measure_DMRG([Tx2,Ty2,Tz2],file="orbital_fluctuations",pos=arange(1,Nsites))
-  ! call Measure_DMRG([Tx,Ty],file="in_plane_orbital_polarization",pos=arange(1,Nsites))
-  !
-  if(master)print*,"<Sz_i.Sz_j>_c"
-  call get_correlations("sz.sz",Sz)
-  if(master)print*,"<Tz_i.Tz_j>_c"     
-  call get_correlations("tz.tz",Tz)
-  if(master)print*,"<Tx_i.Tx_j>_c"
-  call get_correlations("tx.tx",Tx)
-  if(master)print*,"<Ty_i.Ty_j>_c"
-  call get_correlations("ty.ty",Ty)
-  !
-  !Get T_\perp(ij)=<T_x(i).T_x(j)+T_y(i).T_y(j)> and \sum_ij <T_perp(ij)>
-  call get_perp_correlations(Tx,Ty)
-  if(getWick) call get_wick_residuals(C)
+  if(getWick) then
+    call get_wick_residuals(C)
+    !call get_perp_chi(Tx,Ty)
+  else
+    call Measure_DMRG([Tx2,Ty2,Tz2],file="orbital_fluctuations",pos=arange(1,Nsites))
+    ! call Measure_DMRG([Tx,Ty],file="in_plane_orbital_polarization",pos=arange(1,Nsites))
+    !
+    if(master)print*,"<Sz_i.Sz_j>_c"
+    call get_correlations("sz.sz",Sz)
+    if(master)print*,"<Tz_i.Tz_j>_c"     
+    call get_correlations("tz.tz",Tz)
+    if(master)print*,"<Tx_i.Tx_j>_c"
+    call get_correlations("tx.tx",Tx)
+    if(master)print*,"<Ty_i.Ty_j>_c"
+    call get_correlations("ty.ty",Ty)
+    !
+    !Get T_\perp(ij)=<T_x(i).T_x(j)+T_y(i).T_y(j)> and \sum_ij <T_perp(ij)>
+    call get_perp_correlations(Tx,Ty)
+  endif
   !
   !Free the operators:
   do ispin=1,Nspin
@@ -151,25 +155,33 @@ contains
     if(master)call stop_timer()
     if(master) close(unit)
     !
-    !
-    ! if(master)call start_timer("Chi_perp")
-    ! chi=0d0 !assuming i<-->j are symmetric
-    ! do i=1,Nsites
-    !   chi=chi+dreal(Measure_Corr_DMRG(OpX,[0d0,0d0],OpX,[0d0,0d0],i,i,connected=.true.))
-    !   chi=chi+dreal(Measure_Corr_DMRG(OpY,[0d0,0d0],OpY,[0d0,0d0],i,i,connected=.true.))
-    !   do j=i+1,Nsites
-    !     chi=chi+2d0*dreal(Measure_Corr_DMRG(OpX,[0d0,0d0],OpX,[0d0,0d0],i,j,connected=.true.))
-    !     chi=chi+2d0*dreal(Measure_Corr_DMRG(OpY,[0d0,0d0],OpY,[0d0,0d0],i,j,connected=.true.))
-    !   enddo
-    !   if(master) call eta(i,Nsites)
-    ! enddo
-    ! if(master)call stop_timer()
-    ! if(master) then
-    !   unit=fopen("chi_perp"//str(label_DMRG('u')),append=.false.)
-    !   write(unit,*) chi/dble(Nsites)
-    !   close(unit)
-    ! endif
   end subroutine get_perp_correlations
+
+
+
+  subroutine get_perp_chi(OpX,OpY)
+    type(sparse_matrix),intent(in) :: OpX,OpY
+    integer                        :: i,j,r,ic
+    real(8)                        :: value,chi
+    if(master)call start_timer("Chi_perp")
+    chi=0d0 !assuming i<-->j are symmetric
+    do i=1,Nsites
+      chi=chi+dreal(Measure_Corr_DMRG(OpX,[0d0,0d0],OpX,[0d0,0d0],i,i,connected=.true.))
+      chi=chi+dreal(Measure_Corr_DMRG(OpY,[0d0,0d0],OpY,[0d0,0d0],i,i,connected=.true.))
+      do j=i+1,Nsites
+        chi=chi+2d0*dreal(Measure_Corr_DMRG(OpX,[0d0,0d0],OpX,[0d0,0d0],i,j,connected=.true.))
+        chi=chi+2d0*dreal(Measure_Corr_DMRG(OpY,[0d0,0d0],OpY,[0d0,0d0],i,j,connected=.true.))
+      enddo
+      if(master) call eta(i,Nsites)
+    enddo
+    if(master)call stop_timer()
+    if(master) then
+      unit=fopen("chi_perp"//str(label_DMRG('u')),append=.false.)
+      write(unit,*) chi/dble(Nsites)
+      close(unit)
+    endif
+  end subroutine get_perp_chi
+
 
   ! For a number-conserving Gaussian state Wick's theorem gives
   ! <c1^dag c2^dag c2 c1> = n1*n2
