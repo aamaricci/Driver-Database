@@ -1,8 +1,13 @@
 program BHZ_1d
-  USE SCIFOR
+  USE SF_SPIN
+  USE SF_CONSTANTS
+  USE SF_ARRAYS
+  USE SF_LINALG
+  USE SF_IOTOOLS
   USE DMRG
 #ifdef _MPI
   USE MPI
+  USE SF_MPI
 #endif
   implicit none
 
@@ -37,9 +42,6 @@ program BHZ_1d
   call parse_input_variable(ienergy,"ienergy",finput,default=.true.,comment="Bool to get energy measures. T for post-processing.")
   call parse_input_variable(mh,"MH",finput,default=0.5d0)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.3d0)
-  call parse_input_variable(get1Jcorr,"GET1jCORR",finput,default=.false.)
-  call parse_input_variable(getAVcorr,"GETAVCORR",finput,default=.false.)
-  call parse_input_variable(getIJcorr,"GETIJCORR",finput,default=.false.)
   call read_input(finput)
 
 
@@ -96,28 +98,7 @@ program BHZ_1d
      !
      !Measure <Tz>,<N>,<D>,<Sz^2> (write to file integrated)
      call Measure_DMRG([Tz,Mvec],file="tz_n_d_s2zVSj", pos=arange(1,Nsites))
-     !
-    !  !Measure <Tz(1).Tz(j)>-<Tz(1)><Tz(j)>
-    !  if(master)print*,"<Tz_i.Tz_j>-<Tz_i><Tz_j>"     
-    !  call get_correlations("tz.tz",Tz,[0d0,0d0],Tz,[0d0,0d0])
-    !  !Measure <Sz(i).Sz(j)>
-    !  if(master)print*,"<Sz_i.Sz_j>"
-    !  call get_correlations("sz.sz",Sz(1)+Sz(2),[0d0,0d0],Sz(1)+Sz(2),[0d0,0d0])
-    !
-    ! 
-    !  if(master)print*,"<Tz_i.Tz_{i+1}.Tz_j.Tz_{j+1}>"
-    !  allocate(dqs(2,4));dqs=0d0
-    !  if(master)unit=fopen("O4fz.O4fz_ij"//str(label_DMRG('u')),append=.true.)
-    !  if(master)call start_timer()
-    !  do i=1,Nsites-1
-    !   do j=i,Nsites-1
-    !     product = dreal(Measure_Product_DMRG([Tz,Tz,Tz,Tz],dqs,["none","none","none","none"],[i,i+1,j,j+1]))
-    !     if(master)write(unit,*)i,j,product
-    !   enddo
-    !   if(master)write(unit,*)""
-    !   if(master)call eta(i,Nsites-1)
-    !  enddo
-    !  if(master)call stop_timer()    
+   
      do ispin=1,Nspin
       do iorb=1,Norb
         call C(iorb,ispin)%free()
@@ -167,7 +148,6 @@ contains
     allocate(Cij(Nsites,Nsites))
     Cij=zero
     !
-    !
     !Plot <O_i.O_j> with |j-i| as Manhattan distance
     if(master) unit = fopen(str(label)//"_r"//str(label_DMRG('u')), append=.false.)
     if(master)call start_timer("<Oi.Oj>_|i-j|")
@@ -181,62 +161,10 @@ contains
     enddo
     if(master)call stop_timer()
     if(master)close(unit)
-    !
-
-    
-    !Plot <O_1.O_j>
-    if(get1Jcorr)then
-      if(master)call start_timer("<O1.Oj>")
-      do j=1,Nsites
-        Cij(1,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,1,j,connected=.true.))
-        if(master)call eta(j,Nsites)
-      enddo
-      if(master)call stop_timer()
-      if(master) call splot(str(label)//"_1j"//str(label_DMRG('u')), 1d0*arange(1,Nsites), Cij(1,:))
-    endif
-    !
-    !
-    !Plot <av{O_i.O_j}> average over radius R as a function of R
-    if(getAVcorr)then
-      if(master) unit = fopen(str(label)//"_Rav"//str(label_DMRG('u')), append=.false.)   
-      if(master)call start_timer("<av{Oi.Oj}>_R")  
-      cut = 2   !max(2, Nsites / 2) 
-      allocate(Cavg(Nsites - 2*cut))
-      Cavg = zero
-      do r = 1, Nsites - 2*cut
-        sum_corr = zero
-        count    = 0
-        do i = 1+cut, Nsites-cut-r
-          j = i + r
-          if(Cij(i,j)==zero)Cij(i,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,j,connected=.true.))
-          sum_corr = sum_corr + Cij(i,j)
-          count    = count + 1
-        enddo
-        if (count > 0) Cavg(r) = sum_corr /dble(count)
-        if(master) write(unit,*) r, Cavg(r)
-        if(master)call eta(r,Nsites-2*cut)
-      enddo
-      if(master)call stop_timer()
-      if(master) close(unit)
-      deallocate(Cavg)
-    endif
-    !
-    !
-    if(getIJcorr)then
-      if(master)call start_timer()
-      do i=1,Nsites
-        if(Cij(i,j)==zero)Cij(i,i) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,i,connected=.true.))
-        do j=i+1,Nsites
-          if(Cij(i,j)==zero)Cij(i,j) = dreal(Measure_Corr_DMRG(OpA,dqA,OpB,dqB,i,j,connected=.true.))
-          Cij(j,i) = Cij(i,j)
-        enddo
-        if(master) call eta(i,Nsites)         
-      enddo
-      if(master)call stop_timer()
-      if(master) call splot3d(str(label)//"_ij"//str(label_DMRG('u')), 1d0*arange(1,Nsites), 1d0*arange(1,Nsites), Cij)
-    endif
-    !
+    ! 
   end subroutine get_correlations
+
+
 
 end program BHZ_1d
 

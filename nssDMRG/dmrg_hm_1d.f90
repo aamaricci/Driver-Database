@@ -10,9 +10,9 @@ program hubbard_1d
   character(len=64)                              :: finput
   integer                                        :: i,j,unit,iorb,ispin,pos,Nsites
   real(8)                                        :: ts,Mh,lambda,val,K,alpha
-  real(8)                                        :: Eloc,Etotal
+  real(8)                                        :: Eloc,Etot,Product,Ekin,E0loc,Eint,Eshift
   type(site)                                     :: MyDot
-  type(sparse_matrix)                            :: Kij,Hi
+  type(sparse_matrix)                            :: Kij,Hi,H0loc,Hint,Hshift
   type(sparse_matrix),dimension(:,:),allocatable :: N,C
   type(sparse_matrix),dimension(:),allocatable   :: pair,dens,docc,sz,s2z,Mvec
   real(8),dimension(:,:),allocatable             :: Hloc,Hlr,avLocal,corr
@@ -69,7 +69,7 @@ program hubbard_1d
   endif
 
   !Setup Dot basis:
-  MyDot = electron_site(Hloc)
+  MyDot = electron_site(Hloc,H0loc=H0loc,Hint=Hint,Hshift=Hshift)
 
   !Init DMRG
   call init_dmrg(Hlr,ModelDot=[MyDot])
@@ -99,12 +99,6 @@ program hubbard_1d
      !
      call Measure_DMRG(Mvec,file="n_d_s2zVSj", pos=arange(1,Nsites))
      !
-     !Measure <K>,<Hloc>
-     if(master)unit=fopen("Ekin_Eloc_Etot"//str(label_DMRG('u')),append=.true.)
-     call Measure_Energy_DMRG(Hlr,K,Eloc,Etotal,Kij,Hi)
-     if(master)write(unit,*)K,Eloc,Etotal
-     if(master)close(unit)
-     !
      !The density matrix is flattened with io outermost and jo innermost.
      if(master)print*,"measure density.density nn"
      allocate(corr_values(Nso*Nso))
@@ -131,6 +125,18 @@ program hubbard_1d
       enddo
     enddo
   endif
+
+
+  !Measure energies: <K>,<Hloc>
+  call Init_Measure_DMRG()
+  if(master)print*,"measure energies"
+  if(master)unit=fopen("Ekin_Eloc_Etot"//str(label_DMRG('u')),append=.false.)
+  call Measure_Energy_DMRG(Hlr,Ekin,Eloc,Etot,&
+      H0loc=H0loc,Hint=Hint,Hshift=Hshift,&
+      E0loc=E0loc,Eint=Eint,Eshift=Eshift)
+  if(master)write(unit,*)Ekin,Eloc,Etot,E0loc,Eint,Eshift
+  if(master)close(unit)
+  call End_Measure_DMRG()
 
 
   !Finalize DMRG

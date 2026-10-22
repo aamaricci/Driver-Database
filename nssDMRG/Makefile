@@ -4,9 +4,9 @@
 #$ PLATFORM: supported platform are intel, gnu
 #$ EXECUTABLE TARGET DIRECTORY (default is $HOME/.bin)
 
-EXE=dmrg_hm_1d
+#EXE=dmrg_hm_1d
 #EXE=dmrg_spin_1d
-#EXE=dmrg_bhz_1d
+EXE=dmrg_bhz_1d
 
 FC=mpif90
 PLAT=gnu
@@ -23,14 +23,6 @@ ifdef LIB_DMRG
 GLOB_INC+=$(shell pkg-config --cflags ${LIB_DMRG})
 GLOB_LIB+=$(shell pkg-config --libs ${LIB_DMRG})
 endif
-
-ifdef LIB_TB
-GLOB_INC+=$(shell pkg-config --cflags ${LIB_TB})
-GLOB_LIB+=$(shell pkg-config --libs ${LIB_TB})
-endif
-
-#GLOB_INC+=$(shell pkg-config --cflags scifor)# libtcmalloc libprofiler)
-#GLOB_LIB+=$(shell pkg-config --libs   scifor)# libtcmalloc libprofiler)
 
 
 ifeq ($(PLAT),intel)
@@ -93,14 +85,8 @@ bhz:
 	$(call colorecho,"created MPI dmrg_bhz_1d in  $(DIREXE)", 2)
 	@echo ""
 
-bhz_post: FLAG:=${FFLAG} ${FPPMPI}
 bhz_post:
-	@echo "compiling post_bhz_1d.f90"
-	$(FC) -o $(DIREXE)/post_bhz_1d post_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
-	cp -v bhz_entanglement_analysis.py ${DIREXE}
-	$(call colorecho,"created MPI post_bhz_1d in  $(DIREXE)", 2)
-	$(call colorecho,"copied bhz_entanglement_analysis.py in $(DIREXE)", 2)
-	@echo ""
+	@make -C BHZ_post-processing
 
 
 mpi: FLAG:=${FFLAG} ${FPPMPI}
