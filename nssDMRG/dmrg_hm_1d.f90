@@ -1,9 +1,15 @@
 program hubbard_1d
-  USE SCIFOR
+  USE SF_SPIN
+  USE SF_CONSTANTS
+  USE SF_ARRAYS
+  USE SF_LINALG
+  USE SF_IOTOOLS
   USE DMRG
 #ifdef _MPI
   USE MPI
+  USE SF_MPI
 #endif
+
   implicit none
 
   integer                                        :: Nso
@@ -88,16 +94,17 @@ program hubbard_1d
            N(iorb,ispin) = matmul(C(iorb,ispin)%dgr(),C(iorb,ispin))
         enddo
      enddo
-     allocate(Mvec(3*Norb),sz(Norb))
+     allocate(Mvec(4*Norb),sz(Norb))
      do iorb=1,Norb
         sz(iorb)          = 0.5d0*(n(iorb,1)-n(iorb,2))
-        Mvec(iorb)        = n(iorb,1)+n(iorb,2)
-        Mvec(iorb+Norb)   = matmul(n(iorb,1),n(iorb,2))
-        Mvec(iorb+2*Norb) = matmul(sz(iorb),sz(iorb))
+        Mvec(iorb)        = n(iorb,1)
+        Mvec(iorb+Norb)   = n(iorb,2)
+        Mvec(iorb+2*Norb) = matmul(n(iorb,1),n(iorb,2))
+        Mvec(iorb+3*Norb) = matmul(sz(iorb),sz(iorb))
      enddo
      !
      !
-     call Measure_DMRG(Mvec,file="n_d_s2zVSj", pos=arange(1,Nsites))
+     call Measure_DMRG(Mvec,file="nup_ndw_d_s2zVSj", pos=arange(1,Nsites))
      !
      !The density matrix is flattened with io outermost and jo innermost.
      if(master)print*,"measure density.density nn"

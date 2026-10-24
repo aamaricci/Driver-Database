@@ -87,17 +87,18 @@ program BHZ_1d
            N(iorb,ispin) = matmul(C(iorb,ispin)%dgr(),C(iorb,ispin))
         enddo
      enddo
-     allocate(Mvec(3*Norb),sz(Norb))
+     allocate(Mvec(4*Norb),sz(Norb))
      do iorb=1,Norb
         sz(iorb)          = n(iorb,1)-n(iorb,2)
-        Mvec(iorb)        = n(iorb,1)+n(iorb,2)
-        Mvec(iorb+Norb)   = matmul(n(iorb,1),n(iorb,2))
-        Mvec(iorb+2*Norb) = matmul(sz(iorb),sz(iorb))
+        Mvec(iorb)        = n(iorb,1)
+        Mvec(iorb+Norb)   = n(iorb,2)
+        Mvec(iorb+2*Norb) = matmul(n(iorb,1),n(iorb,2))
+        Mvec(iorb+3*Norb) = matmul(sz(iorb),sz(iorb))
      enddo
      Tz = (n(2,1)+n(2,2)-n(1,1)-n(1,2))/2d0
      !
      !Measure <Tz>,<N>,<D>,<Sz^2> (write to file integrated)
-     call Measure_DMRG([Tz,Mvec],file="tz_n_d_s2zVSj", pos=arange(1,Nsites))
+     call Measure_DMRG([Tz,Mvec],file="tz_nup_ndw_d_s2zVSj", pos=arange(1,Nsites))
    
      do ispin=1,Nspin
       do iorb=1,Norb

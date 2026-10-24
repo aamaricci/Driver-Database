@@ -1,9 +1,15 @@
 program dmrg_spin_1d
-  USE SCIFOR
+  USE SF_SPIN
+  USE SF_CONSTANTS
+  USE SF_ARRAYS
+  USE SF_LINALG
+  USE SF_IOTOOLS
   USE DMRG
 #ifdef _MPI
   USE MPI
+  USE SF_MPI
 #endif
+
   implicit none
   character(len=64)                  :: finput
   integer                            :: i,j,SUN,Unit,pos,Nsites

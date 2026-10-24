@@ -41,7 +41,6 @@ program BHZ_1d_structure
   call parse_input_variable(mh,"MH",finput,default=0.5d0)
   call parse_input_variable(lambda,"LAMBDA",finput,default=0.3d0)
   call parse_input_variable(cut,'BULK_CUT',finput,default=0,comment="Index to cut out extrema of the 1d lattice 1+bulk_cut:L-bulk_cut")
-  if(cut<0.OR.2*cut>=current_L)error stop 'Invalid BULK_CUT'
   call parse_input_variable(connected,'STRUCTURE_CONNECTED',finput,default=.false.,comment="Whether to include connected correlations")
   call read_input(finput)
   !
@@ -71,9 +70,11 @@ program BHZ_1d_structure
   !
   charge = N(1,1)+N(2,1)+N(1,2)+N(2,2)
   spin   =(N(1,1)+N(2,1)-N(1,2)-N(2,2))/2d0
-  !
+  
+
   call Init_Measure_DMRG()
-  !
+  if(cut<0.OR.2*cut>=current_L)error stop 'Invalid BULK_CUT'
+
   !
   positions=[(i,i=cut+1,current_L-cut)]
   q        =[(2d0*pi*dble(k)/dble(size(positions)),k=0,size(positions)-1)]
