@@ -7,6 +7,7 @@ program wick_1d_post
   USE SF_LINALG
   USE SF_IOTOOLS
   USE DMRG
+  use DMRG_GLOBAL, only: current_L
 #ifdef _MPI
   USE MPI
   USE SF_MPI
@@ -33,6 +34,8 @@ program wick_1d_post
   master=.true.
 #endif
   call parse_cmd_variable(finput,"FINPUT",default='used.DMRG.conf')
+  call parse_input_variable(mh,"MH",finput,default=0.5d0)
+  call parse_input_variable(lambda,"LAMBDA",finput,default=0.3d0)
   call read_input(finput)
   !
   if(Nspin/=2 .or. Norb/=2) stop "BHZ post driver requires Nspin=Norb=2"
@@ -67,7 +70,9 @@ program wick_1d_post
   Ty2=matmul(Ty,Ty)
   Tz2=matmul(Tz,Tz)
   !
+  call Init_Measure_DMRG()
   call get_wick_residuals(C)
+  call get_one_particle_density(C)
   !
   !Free the operators:
   do ispin=1,Nspin
@@ -86,6 +91,101 @@ program wick_1d_post
 
 contains
 
+
+  ! Full-chain one-particle matrix; spin off-diagonal blocks vanish in normal mode.
+  ! R(mu,nu)=<c_mu^dagger c_nu>, mu=(i-1)*Norb+a within each spin block.
+  subroutine get_one_particle_density(Cop)
+    type(sparse_matrix),intent(in) :: Cop(:,:)
+    complex(8),allocatable :: R(:,:),work(:,:)
+    real(8),allocatable :: occupations(:),dq(:)
+    real(8) :: entropy(Nspin),defect(Nspin),traces(Nspin),lo(Nspin),hi(Nspin)
+    complex(8) :: realpart,imagpart
+    real(8) :: n,diagonal_imag(Nspin),trace_error(Nspin),occupation_tol
+    type(sparse_matrix) :: creator
+    character(len=:),allocatable :: key
+    integer :: L,K,s,mu,nu,i,j,a,b,iu,iv,iw
+    ! Endpoint clipping only repairs floating-point excursions outside [0,1].
+    occupation_tol=1d-8
+    if(QNdim/=2.or.to_lower(DMRG_MODE)/='normal') &
+         error stop 'One-particle non-freeness requires normal mode and QNDIM=2'
+    L=current_L
+    K=L*Norb
+    allocate(R(K,K),work(K,K),occupations(K))
+    entropy=0d0;defect=0d0;traces=0d0;diagonal_imag=0d0
+    if(master)then
+      iu=fopen('one_particle_density'//str(label_DMRG('u')),append=.false.)
+      iv=fopen('natural_occupations'//str(label_DMRG('u')),append=.false.)
+      write(iu,*) '# spin i a j b Re R Im R; R=<c_i,a,spin^dag c_j,b,spin>; full chain L=',L
+      write(iv,*) '# spin alpha occupation (raw eigenvalue, ascending)'
+    endif
+    do s=1,Nspin
+      key='C'//Dot%okey(1,s)
+      dq=Dot%operators%dq(key)
+      do mu=1,K
+        i=(mu-1)/Norb+1
+        a=mod(mu-1,Norb)+1
+        creator=Cop(a,s)%dgr()
+        do nu=mu,K
+          j=(nu-1)/Norb+1
+          b=mod(nu-1,Norb)+1
+          realpart=Measure_Corr_DMRG(creator,-dq,Cop(b,s),dq,i,j, &
+               typeA='fermionic',typeB='fermionic',connected=.false.)
+          ! Same-block Average_Op returns a real expectation in this library.
+          ! Recover Im <A> as Re <-i A>, also valid for complex LR contractions.
+          imagpart=Measure_Corr_DMRG(cmplx(0d0,-1d0,8)*creator,-dq,Cop(b,s),dq,i,j, &
+               typeA='fermionic',typeB='fermionic',connected=.false.)
+          R(mu,nu)=cmplx(real(realpart,8),real(imagpart,8),8)
+          if(mu==nu)diagonal_imag(s)=max(diagonal_imag(s),abs(aimag(R(mu,nu))))
+          R(nu,mu)=conjg(R(mu,nu))
+        enddo
+        call creator%free()
+      enddo
+      if(master)then
+        ! Export both triangles before diagonalization overwrites the workspace.
+        do mu=1,K
+          i=(mu-1)/Norb+1;a=mod(mu-1,Norb)+1
+          do nu=1,K
+            j=(nu-1)/Norb+1;b=mod(nu-1,Norb)+1
+            write(iu,*) s,i,a,j,b,real(R(mu,nu),8),aimag(R(mu,nu))
+          enddo
+          traces(s)=traces(s)+real(R(mu,mu),8)
+          R(mu,mu)=cmplx(real(R(mu,mu),8),0d0,8)
+        enddo
+        if(diagonal_imag(s)>occupation_tol)error stop '1RDM: complex diagonal exceeds tolerance'
+        work=R
+        call eigh(work,occupations)
+        lo(s)=minval(occupations);hi(s)=maxval(occupations)
+        if(lo(s)<-occupation_tol.or.hi(s)>1d0+occupation_tol) &
+             error stop '1RDM: occupation outside [0,1] beyond tolerance'
+        trace_error(s)=abs(sum(occupations)-traces(s))
+        do mu=1,K
+          write(iv,*) s,mu,occupations(mu)
+          n=max(0d0,min(1d0,occupations(mu)))
+          if(n>0d0)entropy(s)=entropy(s)-n*log(n)
+          if(n<1d0)entropy(s)=entropy(s)-(1d0-n)*log(1d0-n)
+          defect(s)=defect(s)+n*(1d0-n)
+        enddo
+      endif
+      deallocate(dq)
+    enddo
+    if(master)then
+      close(iu);close(iv)
+      iw=fopen('non_freeness'//str(label_DMRG('u')),append=.false.)
+      write(iw,*) '# Pure full-chain state, natural logarithms (nats); L=',L
+      write(iw,*) '# C_total C_per_site C_up C_down Tr[R(1-R)]_total Tr[R(1-R)]_per_site'
+      write(iw,*) sum(entropy),sum(entropy)/L,entropy,sum(defect),sum(defect)/L
+      close(iw)
+      iw=fopen('one_particle_checks'//str(label_DMRG('u')),append=.false.)
+      write(iw,*) '# spin trace_R min_eigenvalue max_eigenvalue max_diagonal_Im trace_eigenvalue_error'
+      write(iw,*) '# Hermitian lower triangle reconstructed; cross-spin blocks zero by QN selection.'
+      write(iw,*) '# Eigenvalues outside [0,1] by more than ',occupation_tol,' are rejected.'
+      do s=1,Nspin
+        write(iw,*) s,traces(s),lo(s),hi(s),diagonal_imag(s),trace_error(s)
+      enddo
+      close(iw)
+    endif
+    deallocate(R,work,occupations)
+  end subroutine get_one_particle_density
 
   ! For a number-conserving Gaussian state Wick's theorem gives
   ! <c1^dag c2^dag c2 c1> = n1*n2

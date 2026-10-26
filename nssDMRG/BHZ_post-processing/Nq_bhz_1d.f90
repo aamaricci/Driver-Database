@@ -34,7 +34,7 @@ program BHZ_1d_structure
   call init_MPI()
   comm=MPI_COMM_WORLD
   call StartMsg_MPI(comm)
-  rank=get_Rank_MPI(comm) 
+  rank=get_Rank_MPI(comm)
   master=get_Master_MPI(comm)
 #endif
   call parse_cmd_variable(finput,"FINPUT",default='used.DMRG.conf')
@@ -61,58 +61,46 @@ program BHZ_1d_structure
   !
   allocate(N(Norb,Nspin))
   do j=1,Nspin
-     do i=1,Norb
-        C=Dot%operators%op('C'//Dot%okey(i,j))
-        N(i,j)=matmul(C%dgr(),C)
-        call C%free()
-     enddo
+    do i=1,Norb
+      C=Dot%operators%op('C'//Dot%okey(i,j))
+      N(i,j)=matmul(C%dgr(),C)
+      call C%free()
+    enddo
   enddo
   !
   charge = N(1,1)+N(2,1)+N(1,2)+N(2,2)
-  spin   =(N(1,1)+N(2,1)-N(1,2)-N(2,2))/2d0
-  
-
+  !
+  !
   call Init_Measure_DMRG()
   if(cut<0.OR.2*cut>=current_L)error stop 'Invalid BULK_CUT'
-
   !
   positions=[(i,i=cut+1,current_L-cut)]
   q        =[(2d0*pi*dble(k)/dble(size(positions)),k=0,size(positions)-1)]
   !
   ! F(q)=sum_ij exp[i*q*(j-i)] <A_i A_j> / number of selected sites.
   ! Equal-site terms and all pair multiplicities are retained, also in OBC.
-  if(Master)write(*,*)"Computing spin structure factor S(q)" 
-  call Measure_Structure_DMRG(spin,[0d0,0d0],spin,[0d0,0d0],q,F, &
-       positions=positions,&
-       connected=connected,&
-       same_operator=.true.,hermitian=.true.,commuting=.true.)
-  unit=fopen('Sq'//str(label_DMRG('u')),append=.false.)
-  write(unit,*) '# q [rad/site], Re F(q), Im F(q)', 'connected=',connected,' L=',current_L,' BULK_CUT=',cut
-  do k=1,size(q)
-     write(unit,*) q(k),dreal(F(k)),dimag(F(k))
-  enddo
-  close(unit)
-  !
-  if(Master)write(*,*)"Computing charge structure factor N(q)" 
+  if(Master)write(*,*)"Computing charge structure factor N(q)"
   call Measure_Structure_DMRG(charge,[0d0,0d0],charge,[0d0,0d0],q,F, &
-       positions=positions,&
-       connected=connected,&
-       same_operator=.true.,hermitian=.true.,commuting=.true.)
-  unit=fopen('Nq'//str(label_DMRG('u')),append=.false.)
-  write(unit,*) '# q [rad/site], Re F(q), Im F(q)', 'connected=',connected,' L=',current_L,' BULK_CUT=',cut
-  do k=1,size(q)
-    write(unit,*) q(k),dreal(F(k)),dimag(F(k))
-  enddo
-  close(unit)     
+    positions=positions,&
+    connected=connected,&
+    same_operator=.true.,hermitian=.true.,commuting=.true.)
+  if(master)then
+    unit=fopen('Nq'//str(label_DMRG('u')),append=.false.)
+    write(unit,*) '# q [rad/site], Re F(q), Im F(q)', 'connected=',connected,' L=',current_L,' BULK_CUT=',cut
+    do k=1,size(q)
+      write(unit,*) q(k),dreal(F(k)),dimag(F(k))
+    enddo
+    close(unit)
+  endif
   !
   !
   call End_Measure_DMRG()
   !
   !Free memory
   do j=1,Nspin
-     do i=1,Norb
-        call N(i,j)%free()
-     enddo
+    do i=1,Norb
+      call N(i,j)%free()
+    enddo
   enddo
   call charge%free()
   call spin%free()

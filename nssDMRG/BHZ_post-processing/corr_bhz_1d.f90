@@ -6,6 +6,7 @@ program BHZ_1d_post
   USE SF_ARRAYS
   USE SF_LINALG
   USE SF_IOTOOLS
+  USE SF_TIMER
   USE DMRG
 #ifdef _MPI
   USE MPI
@@ -22,12 +23,14 @@ program BHZ_1d_post
   complex(8),dimension(:,:),allocatable          :: Hloc,Hlr
   type(sparse_matrix),dimension(:,:),allocatable :: C,N
   type(sparse_matrix)                            :: Sz,Tx,Ty,Tz,Tx2,Ty2,Tz2,Hint,H0loc,Hshift
+  type(sparse_matrix)                            :: Splus,Eplus
+  real(8),allocatable                            :: mz(:)
   logical                                        :: master=.true.
 #ifdef _MPI
   call init_MPI()
   comm=MPI_COMM_WORLD
   call StartMsg_MPI(comm)
-  rank=get_Rank_MPI(comm) 
+  rank=get_Rank_MPI(comm)
   master=get_Master_MPI(comm)
 #endif
   call parse_cmd_variable(finput,"FINPUT",default='used.DMRG.conf')
@@ -36,6 +39,8 @@ program BHZ_1d_post
   call read_input(finput)
   !
   if(Nspin/=2 .or. Norb/=2) stop "BHZ post driver requires Nspin=Norb=2"
+  if(QNdim/=2.or.to_lower(DMRG_MODE)/="normal") &
+    error stop "Transverse correlators require normal mode and QNDIM=2"
   Nsites=2*Ldmrg
   Nso=Nspin*Norb
   !
@@ -51,9 +56,9 @@ program BHZ_1d_post
   !
   allocate(C(Norb,Nspin),N(Norb,Nspin))
   do ispin=1,Nspin; do iorb=1,Norb
-    C(iorb,ispin)=Dot%operators%op(key="C"//Dot%okey(iorb,ispin))
-    N(iorb,ispin)=matmul(C(iorb,ispin)%dgr(),C(iorb,ispin))
-  enddo; enddo
+      C(iorb,ispin)=Dot%operators%op(key="C"//Dot%okey(iorb,ispin))
+      N(iorb,ispin)=matmul(C(iorb,ispin)%dgr(),C(iorb,ispin))
+    enddo; enddo
   Sz= N(1,1)+N(2,1)-N(1,2)-N(2,2)
   Tz=(N(2,1)+N(2,2)-N(1,1)-N(1,2))/2d0
   !
@@ -67,12 +72,11 @@ program BHZ_1d_post
   Ty2=matmul(Ty,Ty)
   Tz2=matmul(Tz,Tz)
   !
-  call Measure_DMRG([Tx2,Ty2,Tz2],file="orbital_fluctuations",pos=arange(1,Nsites))
-  call Measure_DMRG([Tx,Ty],file="in_plane_orbital_polarization",pos=arange(1,Nsites))
-  !
   if(master)print*,"<Sz_i.Sz_j>_c"
   call get_correlations("sz.sz",Sz)
-  if(master)print*,"<Tz_i.Tz_j>_c"     
+  call get_Sz_disconnected_correlations()
+  !
+  if(master)print*,"<Tz_i.Tz_j>_c"
   call get_correlations("tz.tz",Tz)
   if(master)print*,"<Tx_i.Tx_j>_c"
   call get_correlations("tx.tx",Tx)
@@ -83,13 +87,25 @@ program BHZ_1d_post
   if(master)print*,"<Tperp_i.Tperp_j>_c"
   call get_perp_correlations(Tx,Ty)
   !
+  ! Definite QN shifts: plus=(+1,-1), minus=(-1,+1); even fermion parity.
+  Splus=matmul(C(1,1)%dgr(),C(1,2))+matmul(C(2,1)%dgr(),C(2,2))
+  call get_transverse_correlations('sx.sx',Splus)
+  !
+  ! E_x=(Delta_x+Delta_x^dagger)/2; Delta_x=c1up^dag c2dw+c1dw^dag c2up.
+  Eplus=matmul(C(1,1)%dgr(),C(2,2))+matmul(C(2,1)%dgr(),C(1,2))
+  call get_transverse_correlations('ex.ex',Eplus)
+  !  
+  !
   !Free the operators:
   do ispin=1,Nspin
     do iorb=1,Norb
-      call C(iorb,ispin)%free(); 
+      call C(iorb,ispin)%free();
       call N(iorb,ispin)%free()
-    enddo 
+    enddo
   enddo
+  call Splus%free()
+  call Eplus%free()
+  !
   !
   call End_Measure_DMRG()
   call finalize_dmrg()
@@ -97,6 +113,51 @@ program BHZ_1d_post
   call finalize_MPI()
 #endif
 contains
+
+  subroutine get_transverse_correlations(label,Plus)
+    character(len=*),intent(in) :: label
+    type(sparse_matrix),intent(in) :: Plus
+    type(sparse_matrix) :: Minus
+    complex(8) :: value
+    integer :: i,j,r,ic,iu
+    Minus=Plus%dgr()
+    ic=Nsites/2
+    if(master)then
+      iu=fopen(str(label)//"_r"//str(label_DMRG('u')),append=.false.)
+      write(iu,*) '# r, Re Cxx, Im Cxx, i; j=i+r; Cxx=(C+- + C-+)/4'
+    endif
+    do r=1,ic-1
+      i=ic-r/2
+      j=ic+(r+1)/2
+      value=0.25d0*( &
+        Measure_Corr_DMRG(Plus,[1d0,-1d0],Minus,[-1d0,1d0],i,j)+ &
+        Measure_Corr_DMRG(Minus,[-1d0,1d0],Plus,[1d0,-1d0],i,j))
+      if(master)write(iu,*) r,dreal(value),dimag(value),i
+    enddo
+    if(master)close(iu)
+    call Minus%free()
+  end subroutine get_transverse_correlations
+
+  subroutine get_Sz_disconnected_correlations()
+    integer :: i,j,r,ic,iu
+    ! Compute the profile from the same checkpoint; no dependency on average output.
+    allocate(mz(Nsites))
+    do i=1,Nsites
+      mz(i)=Measure_Op_DMRG(Sz,i)
+    enddo
+    ic=Nsites/2
+    if(master)then
+      iu=fopen('sz.sz_disconnected_r'//str(label_DMRG('u')),append=.false.)
+      write(iu,*) '# r, Dzz(i,r), i; Dzz=mz(i)*mz(i+r); mz=n_up-n_down'
+      do r=1,ic-1
+        i=ic-r/2
+        j=ic+(r+1)/2
+        write(iu,*) r,mz(i)*mz(j),i
+      enddo
+      close(iu)
+    endif
+    deallocate(mz)
+  end subroutine get_Sz_disconnected_correlations
 
   subroutine get_correlations(label,Op)
     character(len=*),intent(in)    :: label
@@ -117,7 +178,7 @@ contains
     if(master) close(unit)
   end subroutine get_correlations
 
-  
+
   ! C_perp(r)=C_xx(r)+C_yy(r), connected.  The final line stores the
   ! integrated susceptibility sum_{ij} C_perp(i,j)/Nsites.
   subroutine get_perp_correlations(OpX,OpY)
@@ -126,9 +187,10 @@ contains
     real(8)                        :: value,chi
     if(master) unit=fopen("tperp.tperp_r"//str(label_DMRG('u')),append=.false.)
     if(master)call start_timer("<T_perp.Tperp>_|i-j|")
-    ic=Nsites/2; 
+    ic=Nsites/2;
     do r=1,ic-1
-      i=ic-r/2; j=ic+(r+1)/2
+      i=ic-r/2
+      j=ic+(r+1)/2
       value=dreal(Measure_Corr_DMRG(OpX,[0d0,0d0],OpX,[0d0,0d0],i,j,connected=.true.))
       value=value+dreal(Measure_Corr_DMRG(OpY,[0d0,0d0],OpY,[0d0,0d0],i,j,connected=.true.))
       if(master) write(unit,*) abs(i-j),value

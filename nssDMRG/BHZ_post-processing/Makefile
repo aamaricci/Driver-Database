@@ -47,11 +47,11 @@ define colorecho
 	@tput sgr0
 endef
 
-all: bhz_post structure polarization
+all: bhz_post 
 
 
 bhz_post: FLAG:=${FFLAG} ${FPPMPI}
-bhz_post: energy corr chiPerp polarization structure wick
+bhz_post: energy average corr chiPerp Sq Nq polarization wick
 	$(call colorecho,"created drivers in $(DIREXE)", 2)
 	@echo ""
 
@@ -62,16 +62,23 @@ energy:
 	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""
 
+average: FLAG:=${FFLAG} ${FPPMPI}
+average:
+	$(call colorecho,"compiling $@ post-processing driver", 2)
+	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	@echo ""	
+
+
 corr: FLAG:=${FFLAG} ${FPPMPI}
 corr:
 	$(call colorecho,"compiling $@ post-processing driver", 2)
-	$(FC) -o $(DIREXE)/polarization_bhz_1d polarization_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""	
 
 chiPerp: FLAG:=${FFLAG} ${FPPMPI}
 chiPerp:
 	$(call colorecho,"compiling $@ post-processing driver", 2)
-	$(FC) -o $(DIREXE)/polarization_bhz_1d polarization_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""
 
 polarization: FLAG:=${FFLAG} ${FPPMPI}
@@ -80,11 +87,18 @@ polarization:
 	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""
 
-structure: FLAG:=${FFLAG} ${FPPMPI}
-structure:
+Sq: FLAG:=${FFLAG} ${FPPMPI}
+Sq:
 	$(call colorecho,"compiling $@ post-processing driver", 2)
 	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""
+
+Nq: FLAG:=${FFLAG} ${FPPMPI}
+Nq:
+	$(call colorecho,"compiling $@ post-processing driver", 2)
+	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	@echo ""
+
 
 wick: FLAG:=${FFLAG} ${FPPMPI}
 wick:

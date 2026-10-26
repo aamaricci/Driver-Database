@@ -6,6 +6,7 @@ program BHZ_1d_post
   USE SF_ARRAYS
   USE SF_LINALG
   USE SF_IOTOOLS
+  USE SF_TIMER
   USE DMRG
 #ifdef _MPI
   USE MPI
