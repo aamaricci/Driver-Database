@@ -8,13 +8,14 @@ program BHZ_1d_post
   USE SF_IOTOOLS
   USE SF_TIMER
   USE DMRG
+  USE RESTART_DIR, only: prepare_restart,cleanup_restart
 #ifdef _MPI
   USE MPI
   USE SF_MPI
 #endif
 
   implicit none
-  integer                                        :: Nso,Nsites,iorb,ispin,unit,comm,rank
+  integer                                        :: Nso,Nsites,iorb,ispin,unit,comm=0,rank
   character(len=64)                              :: finput
   real(8)                                        :: Eloc,Etot,Ekin,E0loc,Eint,Eshift
   real(8)                                        :: mh,lambda
@@ -23,6 +24,7 @@ program BHZ_1d_post
   complex(8),dimension(:,:),allocatable          :: Hloc,Hlr
   type(sparse_matrix),dimension(:,:),allocatable :: C,N
   type(sparse_matrix)                            :: Sz,Tx,Ty,Tz,Tx2,Ty2,Tz2,Hint,H0loc,Hshift
+  type(sparse_matrix)                            :: Mz(2)
   logical                                        :: master=.true.
 #ifdef _MPI
   call init_MPI()
@@ -48,6 +50,7 @@ program BHZ_1d_post
   !
   Hlr=-0.5d0*GammaZ+0.5d0*xi*lambda*GammaX
   !
+  call prepare_restart()
   call init_dmrg(Hlr,ModelDot=[Dot])
   !
   allocate(C(Norb,Nspin),N(Norb,Nspin))
@@ -61,18 +64,26 @@ program BHZ_1d_post
   Tx=0.5d0*(matmul(C(1,1)%dgr(),C(2,1))+matmul(C(2,1)%dgr(),C(1,1)))
   Tx=Tx+0.5d0*(matmul(C(1,2)%dgr(),C(2,2))+matmul(C(2,2)%dgr(),C(1,2)))
   !
-  Ty=cmplx(0d0,-0.5d0,8)*(matmul(C(1,1)%dgr(),C(2,1))-matmul(C(2,1)%dgr(),C(1,1)))
-  Ty=Ty+cmplx(0d0,-0.5d0,8)*(matmul(C(1,2)%dgr(),C(2,2))-matmul(C(2,2)%dgr(),C(1,2)))
+  Ty= (-0.5d0*xi)*(matmul(C(1,1)%dgr(),C(2,1))-matmul(C(2,1)%dgr(),C(1,1)))
+  Ty=Ty-(-0.5d0*xi)*(matmul(C(1,2)%dgr(),C(2,2))-matmul(C(2,2)%dgr(),C(1,2)))
   !
   Tx2=matmul(Tx,Tx)
   Ty2=matmul(Ty,Ty)
   Tz2=matmul(Tz,Tz)
   !
   ! Orbital magnetizations use Mz_a=n_up,a-n_down,a (twice physical Sz_a).
-  call Measure_DMRG([N(1,1)-N(1,2),N(2,1)-N(2,2)],file="mz_orbital",pos=[(iorb,iorb=1,Nsites)])  
+  ! Keep composite sparse operators in named objects.  Array constructors made
+  ! directly from overloaded sparse-matrix expressions can outlive or alias
+  ! their temporary operands, depending on compiler evaluation order.
+  Mz(1)=N(1,1)-N(1,2)
+  Mz(2)=N(2,1)-N(2,2)
+  call Measure_DMRG(Mz,file="mz_orbital",pos=[(iorb,iorb=1,Nsites)])
   call Measure_DMRG([Tx2,Ty2,Tz2],file="orbital_fluctuations",pos=arange(1,Nsites))
   call Measure_DMRG([Tx,Ty],file="in_plane_orbital_polarization",pos=arange(1,Nsites))
   !
+  !
+  call Mz(1)%free()
+  call Mz(2)%free()
   !Free the operators:
   do ispin=1,Nspin
     do iorb=1,Norb
@@ -83,6 +94,7 @@ program BHZ_1d_post
   !
   call End_Measure_DMRG()
   call finalize_dmrg()
+  call cleanup_restart()
 #ifdef _MPI
   call finalize_MPI()
 #endif

@@ -8,6 +8,7 @@ program BHZ_1d_post
   USE SF_IOTOOLS
   USE SF_TIMER
   USE DMRG
+  USE RESTART_DIR, only: prepare_restart,cleanup_restart
 #ifdef _MPI
   USE MPI
   USE SF_MPI
@@ -51,6 +52,7 @@ program BHZ_1d_post
   !
   Hlr=-0.5d0*GammaZ+0.5d0*xi*lambda*GammaX
   !
+  call prepare_restart()
   call init_dmrg(Hlr,ModelDot=[Dot])
   !
   allocate(C(Norb,Nspin),N(Norb,Nspin))
@@ -61,11 +63,11 @@ program BHZ_1d_post
   Sz= N(1,1)+N(2,1)-N(1,2)-N(2,2)
   Tz=(N(2,1)+N(2,2)-N(1,1)-N(1,2))/2d0
   !
-  Tx=0.5d0*(matmul(C(1,1)%dgr(),C(2,1))+matmul(C(2,1)%dgr(),C(1,1)))
+  Tx=   0.5d0*(matmul(C(1,1)%dgr(),C(2,1))+matmul(C(2,1)%dgr(),C(1,1)))
   Tx=Tx+0.5d0*(matmul(C(1,2)%dgr(),C(2,2))+matmul(C(2,2)%dgr(),C(1,2)))
   !
-  Ty=cmplx(0d0,-0.5d0,8)*(matmul(C(1,1)%dgr(),C(2,1))-matmul(C(2,1)%dgr(),C(1,1)))
-  Ty=Ty+cmplx(0d0,-0.5d0,8)*(matmul(C(1,2)%dgr(),C(2,2))-matmul(C(2,2)%dgr(),C(1,2)))
+  Ty= (-0.5d0*xi)*(matmul(C(1,1)%dgr(),C(2,1))-matmul(C(2,1)%dgr(),C(1,1)))
+  Ty=Ty-(-0.5d0*xi)*(matmul(C(1,2)%dgr(),C(2,2))-matmul(C(2,2)%dgr(),C(1,2)))
   !
   !Get \chi==\sum_ij T_perp(ij)
   call get_perp_chi(Tx,Ty)
@@ -81,6 +83,7 @@ program BHZ_1d_post
   !
   call End_Measure_DMRG()
   call finalize_dmrg()
+  call cleanup_restart()
 #ifdef _MPI
   call finalize_MPI()
 #endif

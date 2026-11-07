@@ -8,6 +8,7 @@ program BHZ_1d_post
   USE SF_IOTOOLS
   USE DMRG
   use DMRG_GLOBAL, only: current_L
+  USE RESTART_DIR, only: prepare_restart,cleanup_restart
 #ifdef _MPI
   USE MPI
   USE SF_MPI
@@ -23,7 +24,7 @@ program BHZ_1d_post
   complex(8),dimension(:,:),allocatable          :: Hloc,Hlr
   type(sparse_matrix),dimension(:,:),allocatable :: C,N
   type(sparse_matrix)                            :: Sz,Tx,Ty,Tz,Tx2,Ty2,Tz2,Hint,H0loc,Hshift
-  logical                   :: master=.true.
+  logical                                        :: master=.true.
 #ifdef _MPI
   call init_MPI()
   comm=MPI_COMM_WORLD
@@ -50,6 +51,7 @@ program BHZ_1d_post
   !
   Hlr=-0.5d0*GammaZ+0.5d0*xi*lambda*GammaX
   !
+  call prepare_restart()
   call init_dmrg(Hlr,ModelDot=[Dot])
   !
   allocate(C(Norb,Nspin),N(Norb,Nspin))
@@ -88,6 +90,7 @@ program BHZ_1d_post
   !
   call End_Measure_DMRG()
   call finalize_dmrg()
+  call cleanup_restart()
 #ifdef _MPI
   call finalize_MPI()
 #endif

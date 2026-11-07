@@ -8,6 +8,7 @@ program BHZ_1d_structure
   USE SF_IOTOOLS
   USE DMRG
   use DMRG_GLOBAL, only: current_L
+  USE RESTART_DIR, only: prepare_restart,cleanup_restart
 #ifdef _MPI
   USE MPI
   USE SF_MPI
@@ -60,6 +61,7 @@ program BHZ_1d_structure
   !
   Hlr=-0.5d0*GammaZ+0.5d0*xi*lambda*GammaX
   !
+  call prepare_restart()
   call init_dmrg(Hlr,ModelDot=[Dot])
   !
   allocate(N(Norb,Nspin))
@@ -85,6 +87,7 @@ program BHZ_1d_structure
   call Measure_Structure_DMRG(spin,[0d0,0d0],spin,[0d0,0d0],q,F, &
     positions=positions,&
     connected=connected,&
+    mode='auto',&
     same_operator=.true.,hermitian=.true.,commuting=.true.)
   if(Master) then
     unit=fopen('Sq'//str(label_DMRG('u')),append=.false.)
@@ -124,6 +127,7 @@ program BHZ_1d_structure
   call charge%free()
   call spin%free()
   call finalize_dmrg()
+  call cleanup_restart()
 #ifdef _MPI
   call finalize_MPI()
 #endif

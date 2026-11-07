@@ -31,6 +31,7 @@ FPPSERIAL =-cpp -D_
 FPPMPI =-cpp -D_MPI
 endif
 
+OBJ=RESTART_DIR.o
 
 ##$ REVISION SOFTWARE VARIABLES
 REV=$(shell git rev-parse HEAD)
@@ -51,60 +52,81 @@ all: bhz_post
 
 
 bhz_post: FLAG:=${FFLAG} ${FPPMPI}
-bhz_post: energy average corr chiPerp Sq Nq polarization wick
+bhz_post: $(OBJ)
+bhz_post: energy average SpinCorr PSpinCorr ExcCorr chiPerp Sq Nq polarization wick
 	$(call colorecho,"created drivers in $(DIREXE)", 2)
 	@echo ""
+
+energy average corr chiPerp Sq Nq polarization wick: $(OBJ)
 
 
 energy: FLAG:=${FFLAG} ${FPPMPI}
 energy:
 	$(call colorecho,"compiling $@ post-processing driver", 2)
-	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJ} -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""
 
 average: FLAG:=${FFLAG} ${FPPMPI}
 average:
 	$(call colorecho,"compiling $@ post-processing driver", 2)
-	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJ} -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""	
 
 
-corr: FLAG:=${FFLAG} ${FPPMPI}
-corr:
+SpinCorr: FLAG:=${FFLAG} ${FPPMPI}
+SpinCorr:
 	$(call colorecho,"compiling $@ post-processing driver", 2)
-	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJ} -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""	
+
+PSpinCorr: FLAG:=${FFLAG} ${FPPMPI}
+PSpinCorr:
+	$(call colorecho,"compiling $@ post-processing driver", 2)
+	$(FC) ${OBJ} -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	@echo ""	
+
+ExcCorr: FLAG:=${FFLAG} ${FPPMPI}
+ExcCorr:
+	$(call colorecho,"compiling $@ post-processing driver", 2)
+	$(FC) ${OBJ} -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	@echo ""
+
 
 chiPerp: FLAG:=${FFLAG} ${FPPMPI}
 chiPerp:
 	$(call colorecho,"compiling $@ post-processing driver", 2)
-	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJ} -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""
 
 polarization: FLAG:=${FFLAG} ${FPPMPI}
 polarization:
 	$(call colorecho,"compiling $@ post-processing driver", 2)
-	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJ} -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""
 
 Sq: FLAG:=${FFLAG} ${FPPMPI}
 Sq:
 	$(call colorecho,"compiling $@ post-processing driver", 2)
-	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJ} -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""
 
 Nq: FLAG:=${FFLAG} ${FPPMPI}
 Nq:
 	$(call colorecho,"compiling $@ post-processing driver", 2)
-	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJ} -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""
 
 
 wick: FLAG:=${FFLAG} ${FPPMPI}
 wick:
 	$(call colorecho,"compiling $@ post-processing driver", 2)
-	$(FC) -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
+	$(FC) ${OBJ} -o $(DIREXE)/$@_bhz_1d $@_bhz_1d.f90 $(FLAG) ${GLOB_INC} ${GLOB_LIB}
 	@echo ""
+
+
+.f90.o:
+	$(FC) $(FLAG) -c $< ${GLOB_INC}
+
 
 clean: 
 	@echo "Cleaning:"
