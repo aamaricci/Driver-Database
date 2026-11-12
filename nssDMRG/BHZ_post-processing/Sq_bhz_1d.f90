@@ -48,6 +48,7 @@ program BHZ_1d_structure
   call parse_input_variable(connected,'STRUCTURE_CONNECTED',finput,default=.false.,comment="Whether to include connected correlations")
   call read_input(finput)
   !
+  if(PBCdmrg)cut=0
   if(Nspin/=2 .or. Norb/=2) stop "BHZ post driver requires Nspin=Norb=2"
   Nsites=2*Ldmrg
   Nso=Nspin*Norb
